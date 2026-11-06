@@ -1,0 +1,97 @@
+"use client";
+import { useData, useInfiniteData } from "@laguzjs/client/react";
+import Link from "next/link";
+import { useState } from "react";
+import type { Status } from "../lib/db";
+import { boardPage, PAGE, STATS } from "../lib/fields";
+import { usePool } from "../lib/pool";
+import { setStatus } from "./actions";
+
+type Row = { id: string; title: string; status: Status; assignee: { name: string } };
+type Page = { items: Row[]; next: string | null };
+
+const FILTERS: [label: string, status: Status | null][] = [
+  ["All", null],
+  ["Open", "OPEN"],
+  ["Done", "DONE"],
+];
+
+function Stats() {
+  const { data } = useData(usePool(), "stats", {}, STATS);
+  return <p>{data ? `${data.open} open, ${data.done} done` : "Counting issues…"}</p>;
+}
+
+export function Board() {
+  const [status, setFilter] = useState<Status | null>(null);
+  return (
+    <section>
+      <div className="toolbar">
+        <Stats />
+        <div role="group" aria-label="Filter by status">
+          {FILTERS.map(([label, value]) => (
+            <button key={label} aria-pressed={status === value} onClick={() => setFilter(value)}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {/* A new key per filter starts the list over at one page. */}
+      <Issues key={status ?? "ALL"} status={status} />
+    </section>
+  );
+}
+
+function Issues({ status }: { status: Status | null }) {
+  const pool = usePool();
+  const pageArgs = (prev: Page | undefined) => boardPage(prev?.next ?? null, status);
+  const { pages, hasMore, loading, loadingMore, error, loadMore } = useInfiniteData<Page>(
+    pool,
+    (prev, i) =>
+      i === 0 || prev?.next ? { root: "issues", args: pageArgs(prev), fields: PAGE } : null,
+  );
+
+  function toggle(row: Row, page: number) {
+    const next: Status = row.status === "DONE" ? "OPEN" : "DONE";
+    const mark = (p: Page) => ({
+      ...p,
+      items: p.items.map((item) => (item.id === row.id ? { ...item, status: next } : item)),
+    });
+    pool
+      .mutate(() => setStatus(row.id, next), {
+        optimistic: [["issues", pageArgs(pages[page - 1]), mark]],
+        invalidate: ["issues", "issue", "stats"],
+      })
+      .catch(console.error);
+  }
+
+  return (
+    <>
+      {error && <p role="alert">Couldn't load issues: {error.message}</p>}
+      {loading ? (
+        <p>Loading issues…</p>
+      ) : (
+        <ul className="issues">
+          {pages.map((page, i) =>
+            page.items.map((row) => (
+              <li key={row.id}>
+                <input
+                  type="checkbox"
+                  checked={row.status === "DONE"}
+                  onChange={() => toggle(row, i)}
+                  aria-label={`Done: ${row.title}`}
+                />
+                <Link href={`/issues/${row.id}`}>{row.title}</Link>
+                <span>{row.assignee.name}</span>
+              </li>
+            )),
+          )}
+        </ul>
+      )}
+      {hasMore && (
+        <button onClick={loadMore} disabled={loadingMore}>
+          {loadingMore ? "Loading…" : "Show more"}
+        </button>
+      )}
+    </>
+  );
+}
