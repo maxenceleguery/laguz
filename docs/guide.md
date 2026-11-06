@@ -55,7 +55,25 @@ const pool = createPool(httpFetcher("/graphql", { stream: true }), {
 | `maxBatch`   | unlimited                   | Maximum root fields per request, for servers that cap aliases.                                           |
 | `serverRefs` | `"auto"`                    | Whether the server resolves `ref()` arguments. See [Dependent queries](#dependent-queries).              |
 
-`httpFetcher(url, { stream, headers })` POSTs `{ query }` as JSON. Any function
+`httpFetcher(url, options)` POSTs `{ query }` as JSON:
+
+| Option    | Meaning                                                                                  |
+| --------- | ---------------------------------------------------------------------------------------- |
+| `stream`  | Ask for one NDJSON line per root field. Falls back to JSON if the server doesn't stream. |
+| `headers` | Headers, or a function (sync or async) that runs before each request.                    |
+| `init`    | Other `fetch` options, such as `credentials: "include"` for cookies on another origin.   |
+| `fetch`   | Replaces the global `fetch`.                                                             |
+
+```ts
+const fetcher = httpFetcher("/graphql", {
+  stream: true,
+  // Read on every request, so a refreshed token is picked up.
+  headers: async () => ({ authorization: `Bearer ${await auth.token()}` }),
+});
+```
+
+A response that isn't JSON, such as a proxy's error page, fails with its HTTP
+status instead of a parse error. Any function
 `(query) => Promise<Response> | AsyncIterable<Response>` works as a fetcher, so
 you can bring your own transport.
 
