@@ -680,6 +680,17 @@ test("hydrated entries match the browser's arguments after a JSON round trip", a
   expect(client.pool.read("posts", args).data).toEqual([{ id: 1 }]);
 });
 
+test("dehydrate returns plain objects, even for results built on null prototypes", async () => {
+  // graphql-js execute() returns data like this when a server pool runs in-process.
+  const bare = (o: object) => Object.assign(Object.create(null), o);
+  const { pool } = setup(() => ({ data: bare({ q0: bare({ owner: bare({ name: "Ada" }) }) }) }));
+  await pool.load("project", { id: 1 }, [{ owner: ["name"] }]);
+  const [entry] = pool.dehydrate();
+  const owner = (entry!.data as { owner: object }).owner;
+  expect(Object.getPrototypeOf(entry!.data)).toBe(Object.prototype);
+  expect(Object.getPrototypeOf(owner)).toBe(Object.prototype);
+});
+
 test("invalidated entries are not dehydrated", async () => {
   const { pool } = setup(() => ({ data: { q0: { name: "Ada" }, q1: { name: "Bob" } } }));
   await Promise.all([
