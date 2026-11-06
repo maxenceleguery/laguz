@@ -27,6 +27,8 @@ jobs:
       - run: bun run lint
       - run: bun run typecheck
       - run: bun run build
+      - name: Build the Next.js example
+        run: bun run --cwd examples/nextjs build
       - name: Import the built packages with Node
         run: node --input-type=module -e "await import('@laguzjs/client'); await import('@laguzjs/client/react'); await import('@laguzjs/server')"
 

@@ -1,0 +1,101 @@
+:root {
+  color-scheme: light dark;
+  --ink: #1d2327;
+  --muted: #5f6b73;
+  --line: #d5dbdf;
+  --paper: #f7f8f9;
+  --accent: #2f6f8f;
+  font:
+    16px/1.5 system-ui,
+    sans-serif;
+  color: var(--ink);
+  background: var(--paper);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #e4e8eb;
+    --muted: #9aa5ad;
+    --line: #36404a;
+    --paper: #161b1f;
+    --accent: #7fb6d1;
+  }
+}
+body {
+  margin: 0 auto;
+  max-width: 44rem;
+  padding: 0 1rem 14rem;
+}
+header {
+  display: flex;
+  justify-content: space-between;
+  padding: 1.25rem 0;
+  border-bottom: 1px solid var(--line);
+}
+header a {
+  font-weight: 700;
+  color: inherit;
+  text-decoration: none;
+}
+a {
+  color: var(--accent);
+}
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: center;
+  justify-content: space-between;
+}
+button {
+  font: inherit;
+  padding: 0.3rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+button[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.issues {
+  list-style: none;
+  padding: 0;
+}
+.issues li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.issues span {
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+aside {
+  position: fixed;
+  inset: auto 0 0 auto;
+  width: min(100%, 40rem);
+  box-sizing: border-box;
+  max-height: 12rem;
+  overflow: auto;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--line);
+  background: var(--paper);
+  font-size: 0.8125rem;
+}
+aside h2 {
+  margin: 0 0 0.25rem;
+  font-size: inherit;
+}
+aside ol {
+  margin: 0;
+  padding-left: 1.5rem;
+}
+aside code {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}

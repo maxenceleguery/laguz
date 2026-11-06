@@ -180,6 +180,11 @@ one request; if a cursor moved as a result, the pages after it are fetched
 right after. `prefetch: n` keeps `n` pages loaded ahead of what's shown, so
 `loadMore()` displays the next page immediately.
 
+The hook keeps how many pages are shown when `page` starts returning other
+arguments, such as a new filter, and fetches that many pages again one after
+the other. To start over at one page, give the component a `key` built from
+the filter.
+
 ## Dependent queries
 
 When an argument comes from another query's result, describe it with `ref`:
@@ -313,6 +318,8 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
 - If you write the state into a `<script>` tag yourself, escape `<` in the
   JSON. Frameworks that pass props from server to client components do it for
   you.
+
+The [Next.js example](../examples/nextjs) puts this together.
 
 ## Server
 

@@ -92,6 +92,7 @@ The two talk over a small extension of GraphQL over HTTP, described in
 ## Documentation
 
 - [Guide](docs/guide.md): concepts and API
+- [Next.js example](examples/nextjs): server rendering, an infinite list, optimistic updates and dependent queries
 - [Design notes](docs/design.md): why a commit is the batch boundary, and what comes next
 - [Protocol](docs/protocol.md)
 - [Benchmarks](docs/benchmarks)

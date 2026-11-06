@@ -1,0 +1,19 @@
+{
+  "name": "laguz-example-nextjs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "types": "laguz-types lib/schema.graphql -o lib/schema.generated.ts"
+  },
+  "dependencies": {
+    "@laguzjs/client": "workspace:*",
+    "@laguzjs/server": "workspace:*",
+    "graphql": "^17.0.2",
+    "next": "16.4.5",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  }
+}

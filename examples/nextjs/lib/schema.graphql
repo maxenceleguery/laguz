@@ -1,0 +1,40 @@
+type Query {
+  "The signed-in user."
+  viewer: User!
+  "Issue counts. A slow aggregate, to show streaming."
+  stats: Stats!
+  "Issues, newest first, `first` at a time after the cursor `after`."
+  issues(status: Status, assignee: ID, first: Int = 10, after: String): IssuePage!
+  issue(id: ID!): Issue
+}
+
+enum Status {
+  OPEN
+  DONE
+}
+
+type User {
+  id: ID!
+  name: String!
+  email: String!
+}
+
+type Issue {
+  id: ID!
+  title: String!
+  status: Status!
+  assigneeId: ID!
+  assignee: User!
+  createdAt: String!
+}
+
+type IssuePage {
+  items: [Issue!]!
+  "Cursor of the next page, null on the last one."
+  next: String
+}
+
+type Stats {
+  open: Int!
+  done: Int!
+}

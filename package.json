@@ -6,7 +6,8 @@
     "url": "git+https://github.com/maxenceleguery/laguz.git"
   },
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "examples/*"
   ],
   "type": "module",
   "scripts": {
