@@ -9,6 +9,7 @@ import {
   view,
   type Fields,
   type Options,
+  type PoolEvent,
   type Response,
 } from "./index.ts";
 
@@ -1155,4 +1156,98 @@ test("an invalid operation name fails the fields of the request instead of the p
   await settle();
   expect(queries).toEqual([]);
   expect(pool.read("user", { id: 1 }).error?.message).toBe("invalid GraphQL name: not a name");
+});
+
+// --- introspection ---
+
+test("observe follows each request: start, fields as they stream, end", async () => {
+  let release!: () => void;
+  const pool = createPool(async function* () {
+    yield { data: { q0: { name: "Ada" } } };
+    await new Promise<void>((r) => (release = r));
+    yield { data: { q1: null }, errors: [{ message: "nope", path: ["q1"] }] };
+  });
+  const events: PoolEvent[] = [];
+  const stop = pool.observe((e) => events.push(e));
+  pool.watch("user", { id: 1 }, ["name"], () => {});
+  pool.watch("user", { id: 2 }, ["name"], () => {});
+  await settle();
+  release();
+  await settle();
+  // Times vary; compare the rest.
+  const timeless = events.map((e) =>
+    Object.fromEntries(Object.entries(e).filter(([k]) => k !== "at")),
+  );
+  expect(timeless).toEqual([
+    { type: "request", id: 1, query: "{ q0: user(id: 1) { name } q1: user(id: 2) { name } }" },
+    { type: "result", id: 1, fields: ["q0"], errors: [] },
+    { type: "result", id: 1, fields: ["q1"], errors: ["nope"] },
+    { type: "end", id: 1, outcome: "done", error: undefined },
+  ]);
+  stop();
+  pool.invalidate();
+  await settle();
+  expect(events).toHaveLength(4); // stopped observing
+});
+
+test("observe reports failed and aborted requests, and mutations", async () => {
+  const outcomes: string[] = [];
+  const failing = createPool(
+    async (q) => {
+      if (q.startsWith("mutation")) return { data: { rename: { name: "Bob" } } };
+      throw new Error("offline");
+    },
+    { retry: 0 },
+  );
+  failing.observe((e) => {
+    if (e.type === "request") outcomes.push(e.query.split(" ")[0]!);
+    if (e.type === "end") outcomes.push(e.error ? `${e.outcome}: ${e.error}` : e.outcome);
+  });
+  await failing.load("user", { id: 1 }, ["name"]);
+  await failing.mutate("rename", { id: 1, name: "Bob" }, ["name"]);
+  expect(outcomes).toEqual(["{", "failed: offline", "mutation", "done"]);
+
+  const hanging = createPool(
+    (_, o) =>
+      new Promise<Response>((_, fail) =>
+        o!.signal!.addEventListener("abort", () => fail(new Error("aborted"))),
+      ),
+  );
+  const ends: string[] = [];
+  hanging.observe((e) => e.type === "end" && ends.push(e.outcome));
+  const stop = hanging.watch("user", { id: 1 }, ["name"], () => {});
+  await settle();
+  stop();
+  await settle();
+  expect(ends).toEqual(["aborted"]);
+});
+
+test("inspect reports each entry's status, consumers and freshness", async () => {
+  let next = deferred<Response>();
+  const { pool } = setup(() => next.promise, { staleTime: Infinity });
+  const status = () => Object.fromEntries(pool.inspect().map((e) => [e.root + e.args, e.status]));
+  const stop = pool.watch("user", { id: 1 }, ["name"], () => {});
+  pool.watch("user", { id: 1 }, ["name"], () => {});
+  await settle();
+  expect(status()).toEqual({ "user(id: 1)": "loading" });
+  next.resolve({ data: { q0: { name: "Ada" } } });
+  await settle();
+  expect(pool.inspect()[0]).toMatchObject({
+    status: "ready",
+    subscribers: 2,
+    stale: false,
+    data: { name: "Ada" },
+  });
+  stop();
+
+  next = deferred();
+  pool.invalidate("user");
+  await settle();
+  expect(pool.inspect()[0]).toMatchObject({ status: "fetching", subscribers: 1, stale: true });
+  next.resolve({ errors: [{ message: "down", path: ["q0"] }] });
+  await settle();
+  expect(pool.inspect()[0]).toMatchObject({ status: "error", error: "down" });
+
+  pool.set("draft", {}, () => ({ text: "hi" }));
+  expect(status()["draft"]).toBe("idle"); // written, never fetched
 });

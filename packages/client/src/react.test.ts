@@ -3,6 +3,7 @@
 import { expect, test } from "bun:test";
 import { createElement as h, Suspense } from "react";
 import { renderToString } from "react-dom/server";
+import { LaguzDevtools } from "./devtools.tsx";
 import { createPool, queries, toTree, type Dehydrated, type Pool } from "./index.ts";
 import {
   createPoolContext,
@@ -79,4 +80,10 @@ test("createPoolContext renders hydrated data on the server", () => {
     return h("p", null, ctx.useData(described).data?.name ?? "loading");
   }
   expect(renderToString(h(ctx.PoolProvider, { state: user }, h(Name)))).toBe("<p>Ada</p>");
+});
+
+test("the devtools render nothing on the server, so hydration matches", () => {
+  const pool = createPool(never);
+  pool.hydrate(user);
+  expect(renderToString(h(LaguzDevtools, { pool, initialOpen: true }))).toBe("");
 });

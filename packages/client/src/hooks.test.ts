@@ -9,6 +9,7 @@ let React: typeof import("react");
 let client: typeof import("react-dom/client");
 let lib: typeof import("./index.ts");
 let hooks: typeof import("./react.ts");
+let devtools: typeof import("./devtools.tsx");
 
 beforeAll(async () => {
   GlobalRegistrator.register();
@@ -18,6 +19,7 @@ beforeAll(async () => {
   client = await import("react-dom/client");
   lib = await import("./index.ts");
   hooks = await import("./react.ts");
+  devtools = await import("./devtools.tsx");
 });
 afterAll(() => GlobalRegistrator.unregister());
 
@@ -715,5 +717,80 @@ test("streaming: what useSuspenseData fetched on the server hydrates the browser
   expect(requested).toEqual([]);
   await React.act(async () => root.unmount());
   expect(live[id]).toBeUndefined(); // the page no longer holds the pool
+  container.remove();
+});
+
+// --- devtools ---
+
+test("devtools: requests by root with their field timeline, the cache, refetch and invalidate", async () => {
+  const sent: string[] = [];
+  const pool = lib.createPool(
+    async (query) => {
+      sent.push(query);
+      const data = Object.fromEntries((query.match(/q\d+/g) ?? []).map((a) => [a, { name: a }]));
+      return { data };
+    },
+    { staleTime: Infinity, retry: 0 },
+  );
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = client.createRoot(container);
+  await React.act(async () =>
+    root.render(React.createElement(devtools.LaguzDevtools, { pool, initialOpen: true })),
+  );
+  const button = (label: string) =>
+    [...container.querySelectorAll("button")].find((b) => b.textContent?.trim().startsWith(label))!;
+
+  await React.act(async () => {
+    pool.watch("user", { id: 1 }, ["name"], () => {});
+    pool.watch("user", { id: 2 }, ["name"], () => {});
+    pool.watch("stats", {}, ["name"], () => {});
+  });
+  await React.act(async () => {});
+  expect(button("Requests").textContent).toContain("1");
+  const row = button("user ×2, stats");
+  expect(row.textContent).toMatch(/\d+ ms$/);
+  await React.act(async () => row.click());
+  expect(row.getAttribute("aria-expanded")).toBe("true");
+  const timeline = [...container.querySelectorAll(".lz-timeline li")].map(
+    (li) => li.firstChild!.textContent,
+  );
+  expect(timeline).toEqual(["user", "user", "stats"]);
+
+  // Loaded once, then invalidated with nobody reading it: stale until read again.
+  await React.act(async () => pool.load("user", { id: 3 }, ["name"]));
+  await React.act(async () =>
+    pool.invalidate((root, args) => root === "user" && args === "(id: 3)"),
+  );
+  await React.act(async () => button("Cache").click());
+  const rows = [...container.querySelectorAll(".lz-row")].map((b) => b.textContent);
+  expect(rows).toEqual([
+    expect.stringMatching(/^stats.*ready, 1 reader/),
+    expect.stringMatching(/^user\(id: 1\).*ready, 1 reader/),
+    expect.stringMatching(/^user\(id: 2\).*ready, 1 reader/),
+    expect.stringMatching(/^user\(id: 3\).*stale, 0 readers/),
+  ]);
+  await React.act(async () => button("user(id: 2)").click());
+  expect(container.querySelector(".lz-detail pre")!.textContent).toContain('"name": "q');
+  sent.length = 0;
+  await React.act(async () => button("Refetch").click());
+  await React.act(async () => {});
+  expect(sent).toEqual(["{ q0: user(id: 2) { name } }"]);
+  sent.length = 0;
+  await React.act(async () => button("Invalidate all").click());
+  await React.act(async () => {});
+  expect(sent).toEqual([
+    "{ q0: user(id: 1) { name } q1: user(id: 2) { name } q2: stats { name } }",
+  ]);
+
+  await React.act(async () =>
+    container.querySelector<HTMLButtonElement>('[aria-label="Close laguz devtools"]')!.click(),
+  );
+  expect(container.querySelector(".lz-panel")).toBeNull();
+  await React.act(async () =>
+    container.querySelector<HTMLButtonElement>('[aria-label="Open laguz devtools"]')!.click(),
+  );
+  expect(container.querySelector(".lz-panel")).not.toBeNull();
+  await React.act(async () => root.unmount());
   container.remove();
 });

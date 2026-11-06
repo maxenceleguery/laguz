@@ -392,6 +392,8 @@ The building blocks are available on their own:
 | `pool.load(root, args, fields)`            | Fetches without staying subscribed (prefetching). Resolves when the data is ready or failed.                                   |
 | `pool.watch(root, args, fields, callback)` | Subscribes outside React. Returns the unsubscribe function.                                                                    |
 | `pool.read(root, args)`                    | The current snapshot `{ data, error, has }`.                                                                                   |
+| `pool.inspect()`                           | The cache, entry by entry: status, readers, age, data.                                                                         |
+| `pool.observe(listener)`                   | Follows each request: its start, its fields as they arrive, how it ended. Returns the function that stops it.                  |
 
 ## Server rendering
 
@@ -606,6 +608,27 @@ application, call `flush()` on the compressor after each write (the benchmark
 server in `bench/server.ts` does). Behind nginx, disable `proxy_buffering` and
 `gzip` for the GraphQL location rather than relying on nginx to flush.
 
+## Devtools
+
+`LaguzDevtools` shows what a pool sends and holds, in your app:
+
+```tsx
+import { LaguzDevtools } from "@laguzjs/client/devtools";
+
+{
+  process.env.NODE_ENV === "development" && <LaguzDevtools pool={pool} />;
+}
+```
+
+The requests tab lists each request with its root fields, its duration and how
+it ended; open one to see the query and when each field arrived, which shows
+streaming at work. The cache tab lists each entry with its status (loading,
+ready, refreshing, stale, failed), its readers and its age; open one for its
+data and a refetch button. The panel renders in the browser only, after
+hydration, and is built on `pool.inspect()` and `pool.observe()`, which cost
+nothing until something observes the pool. Props: `initialOpen`, `position`
+(a corner), `limit` (requests kept, 50 by default).
+
 ## Testing
 
 `localFetcher` from `@laguzjs/server` runs queries in-process against your
@@ -656,7 +679,7 @@ Request mocking libraries that match GraphQL operations by name, such as MSW's
 | Server rendering          | `dehydrate`, `HydrationBoundary`     | `dehydrate`, `useHydrate`; server loads go out as one request        |
 | Previous data             | `placeholderData: keepPreviousData`  | `keepPrevious: true`                                                 |
 | Cancellation              | a signal per query                   | per batch, once nothing waits for it                                 |
-| Not available yet         |                                      | devtools                                                             |
+| Devtools                  | `@tanstack/react-query-devtools`     | `LaguzDevtools`: requests with their field timelines, the cache      |
 
 ## Limitations
 

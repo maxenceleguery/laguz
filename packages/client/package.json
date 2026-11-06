@@ -41,6 +41,12 @@
       "bun": "./src/react.ts",
       "default": "./dist/react.js"
     },
+    "./devtools": {
+      "source": "./src/devtools.tsx",
+      "types": "./dist/devtools.d.ts",
+      "bun": "./src/devtools.tsx",
+      "default": "./dist/devtools.js"
+    },
     "./package.json": "./package.json"
   },
   "publishConfig": {

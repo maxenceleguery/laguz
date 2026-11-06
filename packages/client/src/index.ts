@@ -1,11 +1,13 @@
 export { createPool, queries, ready } from "./pool.ts";
 export type {
   Dehydrated,
+  EntryInfo,
   Fetcher,
   GqlError,
   Match,
   MutateOptions,
   Options,
+  PoolEvent,
   Pool,
   Response,
   Snapshot,

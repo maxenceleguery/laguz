@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { viewer } from "../lib/queries";
 import { Hydrate, PoolProvider } from "../lib/pool";
 import { serverPool } from "../lib/server-pool";
-import { Requests, Viewer } from "./shell";
+import { Devtools, Viewer } from "./shell";
 import "./globals.css";
 
 export const metadata = { title: "Tracker, a laguz example" };
@@ -22,7 +22,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
               <Viewer />
             </header>
             <main>{children}</main>
-            <Requests />
+            <Devtools />
           </Hydrate>
         </PoolProvider>
       </body>
