@@ -1,7 +1,7 @@
 "use client";
 import { useData } from "@laguzjs/client/react";
 import Link from "next/link";
-import { ISSUE, MORE, moreFrom } from "../../../lib/fields";
+import { issue as issueQuery, moreFrom } from "../../../lib/queries";
 import { usePool } from "../../../lib/pool";
 
 // A fixed locale and time zone, so the server and the browser print the same date.
@@ -9,8 +9,8 @@ const day = new Intl.DateTimeFormat("en", { dateStyle: "long", timeZone: "UTC" }
 
 export function IssueDetail({ id }: { id: string }) {
   const pool = usePool();
-  const { data: issue, loading, error } = useData(pool, "issue", { id }, ISSUE);
-  const { data: more } = useData(pool, "issues", moreFrom(id), MORE);
+  const { data: issue, loading, error } = useData(pool, issueQuery(id));
+  const { data: more } = useData(pool, moreFrom(id));
 
   if (error)
     return (

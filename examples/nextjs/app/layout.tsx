@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { VIEWER } from "../lib/fields";
+import { viewer } from "../lib/queries";
 import { Hydrate, PoolProvider } from "../lib/pool";
 import { serverPool } from "../lib/server-pool";
 import { Requests, Viewer } from "./shell";
@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 
 export default async function RootLayout({ children }: { children: ReactNode }) {
   const pool = serverPool();
-  await pool.load("viewer", {}, VIEWER);
+  await pool.load(viewer);
   return (
     <html lang="en">
       <body>

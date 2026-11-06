@@ -8,7 +8,7 @@ import {
   type WatchOptions,
 } from "./pool.ts";
 import { toTree, view, type Fields } from "./selection.ts";
-import type { RootArgs, RootName, RootResult, RootSelection, SchemaShape } from "./types.ts";
+import type { Query, RootArgs, RootName, RootResult, RootSelection, SchemaShape } from "./types.ts";
 
 const IDLE: Snapshot = Object.freeze({ has: {} });
 const unsubscribed = () => () => {};
@@ -68,6 +68,18 @@ function useLast<T>(enabled: boolean, key: string, ready: boolean, value: T, ver
  * schema, the root, the arguments and the selection are type-checked and
  * `data` has the selected shape.
  */
+export type DataResult<T> = {
+  data: T | undefined;
+  error: Error | undefined;
+  loading: boolean;
+  /** `data` belongs to earlier arguments, see `keepPrevious`. */
+  previous: boolean;
+  /** A background refresh is in flight for the data shown. */
+  fetching: boolean;
+  /** Refetch this entry. The data stays on screen meanwhile, with `fetching`. */
+  refetch: () => void;
+};
+
 export function useData<
   S extends SchemaShape,
   R extends RootName<S>,
@@ -77,21 +89,22 @@ export function useData<
   root: R,
   args: RootArgs<S, R> | null,
   fields: F,
-  { keepPrevious = false, refetchInterval }: DataOptions = {},
-): {
-  data: RootResult<S, R, F> | undefined;
-  error: Error | undefined;
-  loading: boolean;
-  /** `data` belongs to earlier arguments, see `keepPrevious`. */
-  previous: boolean;
-  /** A background refresh is in flight for the data shown. */
-  fetching: boolean;
-  /** Refetch this entry. The data stays on screen meanwhile, with `fetching`. */
-  refetch: () => void;
-} {
-  const { snap, tree, data, key } = useEntry(pool, root, args, fields as unknown as Fields, {
-    refetchInterval,
-  });
+  options?: DataOptions,
+): DataResult<RootResult<S, R, F>>;
+/** The same, for a query from `queries<Schema>()`. Pass `null` to skip it. */
+export function useData<S extends SchemaShape, R extends RootName<S>, F>(
+  pool: Pool<S>,
+  query: Query<S, R, F> | null,
+  options?: DataOptions,
+): DataResult<RootResult<S, R, F>>;
+export function useData(pool: Pool, ...rest: any[]): DataResult<unknown> {
+  const [root, args, fields, { keepPrevious = false, refetchInterval }]: [
+    string,
+    object | null,
+    Fields,
+    DataOptions,
+  ] = fromQuery(rest);
+  const { snap, tree, data, key } = useEntry(pool, root, args, fields, { refetchInterval });
   const isReady = !!args && ready(snap, tree);
   const last = useLast(keepPrevious, key, isReady, data, snap.data);
   const previous = !isReady && !snap.error && !!last;
@@ -119,13 +132,18 @@ export function useSuspenseData<
   S extends SchemaShape,
   R extends RootName<S>,
   const F extends RootSelection<S, R>,
->(pool: Pool<S>, root: R, args: RootArgs<S, R>, fields: F): RootResult<S, R, F> {
+>(pool: Pool<S>, root: R, args: RootArgs<S, R>, fields: F): RootResult<S, R, F>;
+/** The same, for a query from `queries<Schema>()`. */
+export function useSuspenseData<S extends SchemaShape, R extends RootName<S>, F>(
+  pool: Pool<S>,
+  query: Query<S, R, F>,
+): RootResult<S, R, F>;
+export function useSuspenseData(pool: Pool, ...rest: any[]): unknown {
+  const [root, args, fields] = fromQuery(rest);
   // Data that just resolved shouldn't be refetched when the component commits.
-  const { snap, tree, data } = useEntry(pool, root, args, fields as unknown as Fields, {
-    minStaleTime: 1000,
-  });
+  const { snap, tree, data } = useEntry(pool, root, args, fields, { minStaleTime: 1000 });
   if (snap.error) throw snap.error;
-  if (!ready(snap, tree)) throw pool.load(root, args, tree);
+  if (!ready(snap, tree)) throw pool.load(root, args!, tree);
   return data;
 }
 
@@ -138,7 +156,17 @@ export function useHydrate(pool: Pool, state: Dehydrated | null | undefined) {
   useMemo(() => state && pool.hydrate(state), [pool, state]);
 }
 
-export type Page = { root: string; args: object; fields: Fields };
+// `(root, args, fields, options)`, or `(query | null, options)`.
+function fromQuery(rest: any[]): [string, object | null, Fields, DataOptions] {
+  if (typeof rest[0] === "string") return [rest[0], rest[1], rest[2], rest[3] ?? {}];
+  const query: Query | null = rest[0];
+  return query
+    ? [query.root, query.args, query.fields, rest[1] ?? {}]
+    : ["", null, [], rest[1] ?? {}];
+}
+
+/** A page of {@link useInfiniteData}: `{ root, args, fields }`, or a query from `queries<Schema>()`. */
+export type Page = Query;
 
 /**
  * An infinite list. `page(prev, index)` describes page `index` from the data of

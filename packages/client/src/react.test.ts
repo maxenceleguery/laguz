@@ -3,7 +3,7 @@
 import { expect, test } from "bun:test";
 import { createElement as h, Suspense } from "react";
 import { renderToString } from "react-dom/server";
-import { createPool, toTree, type Dehydrated, type Pool } from "./index.ts";
+import { createPool, queries, toTree, type Dehydrated, type Pool } from "./index.ts";
 import { useData, useHydrate, useInfiniteData, useSuspenseData } from "./react.ts";
 
 const never = () => new Promise<never>(() => {});
@@ -34,6 +34,12 @@ test("useSuspenseData renders hydrated data instead of the fallback", () => {
   const html = renderToString(h(Suspense, { fallback: "wait" }, h(Name)));
   expect(html).toContain("<p>Ada</p>");
   expect(html).not.toContain("wait");
+
+  const described = queries()("user", { id: 1 }, ["name"]);
+  function Described() {
+    return h("p", null, useSuspenseData(pool, described).name);
+  }
+  expect(renderToString(h(Suspense, { fallback: "wait" }, h(Described)))).toContain("<p>Ada</p>");
 });
 
 test("useInfiniteData walks hydrated pages by cursor on the server", () => {

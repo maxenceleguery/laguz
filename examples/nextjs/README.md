@@ -3,6 +3,9 @@
 A small issue tracker on the Next.js App Router. The panel at the bottom right
 lists every query the browser sends.
 
+- Every query is defined once in [`lib/queries.ts`](lib/queries.ts), typed
+  from the schema. Server components load them and client components read
+  them, so both reach the same cache entry.
 - The layout and the pages load their data in server components, which run
   queries in-process ([`lib/server-pool.ts`](lib/server-pool.ts)), and hand it
   to the browser's pool with `Hydrate` ([`lib/pool.tsx`](lib/pool.tsx)). A

@@ -4,7 +4,7 @@ import { useData, useInfiniteData, useMutation } from "@laguzjs/client/react";
 import Link from "next/link";
 import { useState } from "react";
 import type { Status } from "../lib/db";
-import { boardPage, PAGE, STATS } from "../lib/fields";
+import { issuePage, stats } from "../lib/queries";
 import { usePool } from "../lib/pool";
 
 type Row = { id: string; title: string; status: Status; assignee: { name: string } };
@@ -17,7 +17,7 @@ const FILTERS: [label: string, status: Status | null][] = [
 ];
 
 function Stats() {
-  const { data } = useData(usePool(), "stats", {}, STATS);
+  const { data } = useData(usePool(), stats);
   return <p>{data ? `${data.open} open, ${data.done} done` : "Counting issues…"}</p>;
 }
 
@@ -42,12 +42,11 @@ export function Board() {
 
 function Issues({ status }: { status: Status | null }) {
   const pool = usePool();
-  const pageArgs = (prev: Page | undefined) => boardPage(prev?.next ?? null, status);
+  const pageOf = (prev: Page | undefined) => issuePage(prev?.next ?? null, status);
   // While another filter loads, the current list stays on screen, dimmed.
   const { pages, hasMore, loading, loadingMore, error, previous, loadMore } = useInfiniteData<Page>(
     pool,
-    (prev, i) =>
-      i === 0 || prev?.next ? { root: "issues", args: pageArgs(prev), fields: PAGE } : null,
+    (prev, i) => (i === 0 || prev?.next ? pageOf(prev) : null),
     { keepPrevious: true },
   );
 
@@ -59,7 +58,7 @@ function Issues({ status }: { status: Status | null }) {
       items: p.items.map((item) => (item.id === id ? { ...item, status: status.$enum } : item)),
     });
     return {
-      optimistic: [["issues", pageArgs(pages[page - 1]), mark]],
+      optimistic: [["issues", pageOf(pages[page - 1]).args, mark]],
       invalidate: ["issues", "issue", "stats"],
     };
   });
