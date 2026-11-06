@@ -75,4 +75,4 @@ a changeset opens or updates a "version packages" pull request, which collects
 every pending changeset, bumps the versions and writes the changelogs. CI runs
 on it like on any other pull request. Merging it publishes both packages to npm
 from the release workflow, with provenance, and creates the git tags and GitHub
-releases. npm then holds the new versions until a maintainer approves them.
+releases. npm makes the new versions available a minute or two later.
