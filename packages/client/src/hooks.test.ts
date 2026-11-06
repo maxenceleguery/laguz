@@ -608,3 +608,107 @@ test("createPoolContext: Hydrate fills a shared provider, bound hooks pass their
   expect(fetched.filter((q) => q.includes("feed")).length).toBeGreaterThan(feeds);
   await unmount();
 });
+
+// --- streaming server rendering ---
+
+test("streaming: what useSuspenseData fetched on the server hydrates the browser pool, then live", async () => {
+  const { renderToReadableStream } = await import("react-dom/server");
+  const h = React.createElement;
+  type Ctx = import("./react.ts").PoolContext<any>;
+  // A name that would end an inline script early if it weren't escaped.
+  const users: Record<string, string> = { "1": "Ada </script>", "2": "Bob", "3": "Cy" };
+  const answer = (query: string) => ({
+    data: Object.fromEntries(
+      [...query.matchAll(/(q\d+): user\(id: (\d+)\)/g)].map(([, alias, id]) => [
+        alias,
+        { name: users[id!] },
+      ]),
+    ),
+  });
+  const user = (id: number) => lib.queries()("user", { id }, ["name"]);
+  const entry = (id: number, name: string) => [
+    { root: "user", args: { id }, data: { name }, has: { name: {} }, at: Date.now() },
+  ];
+  function Name({ ctx, id }: { ctx: Ctx; id: number }) {
+    return h("p", null, ctx.useSuspenseData(user(id)).name);
+  }
+  // Stands in for a script the browser runs while React hydrates, before the
+  // provider commits: it still queues its entries.
+  let late: (() => void) | undefined;
+  function Late() {
+    late?.();
+    late = undefined;
+    return null;
+  }
+  // User 3 in the shell, user 1 in a boundary.
+  const app = (ctx: Ctx) =>
+    h(
+      ctx.PoolProvider,
+      null,
+      h(Name, { ctx, id: 3 }),
+      h(Late),
+      h(React.Suspense, { fallback: h("p", null, "loading") }, h(Name, { ctx, id: 1 })),
+    );
+
+  // Server: the provider's pool fetches what the components suspend on.
+  const inserted: (() => unknown)[] = [];
+  const server = hooks.createPoolContext(
+    () => lib.createPool(async (q) => answer(q), { staleTime: 60_000, retry: 0 }),
+    { useServerInsertedHTML: (callback) => void inserted.push(callback) },
+  );
+  const stream = await renderToReadableStream(app(server));
+  await stream.allReady;
+  const html = await new Response(stream).text();
+  // Next calls the callbacks before every flush of HTML.
+  const flush = () =>
+    inserted
+      .map((cb) => cb() as { props: { dangerouslySetInnerHTML: { __html: string } } } | null)
+      .filter((script) => script !== null)
+      .map((script) => script.props.dangerouslySetInnerHTML.__html);
+  const scripts = flush();
+  expect(scripts).toHaveLength(1);
+  expect(flush()).toEqual([]); // nothing new since
+  expect(scripts[0]).not.toContain("</script>");
+
+  // Browser: the script runs where Next puts it, before hydration.
+  const container = document.createElement("div");
+  container.innerHTML = html;
+  document.body.append(container);
+  new Function(scripts[0]!)();
+  const id = JSON.parse(scripts[0]!.match(/l\[("[^"]+")\]/)![1]!);
+  const live = (globalThis as { __laguz?: Record<string, { push: (s: unknown) => void }> })
+    .__laguz!;
+  late = () => live[id]!.push(entry(2, "Bob"));
+  const requested: string[] = [];
+  const browser = hooks.createPoolContext(() =>
+    lib.createPool(async (q) => (requested.push(q), answer(q)), { staleTime: 60_000, retry: 0 }),
+  );
+  const errors: unknown[] = [];
+  let root!: import("react-dom/client").Root;
+  await React.act(async () => {
+    root = client.hydrateRoot(container, app(browser), {
+      onRecoverableError: (e) => errors.push(e),
+    });
+  });
+  expect(errors).toEqual([]);
+  expect(requested).toEqual([]);
+  expect(container.textContent).toBe("CyAda </script>");
+
+  // Queued during hydration (user 2) or pushed after it (user 4): both in the pool.
+  live[id]!.push(entry(4, "Di"));
+  await React.act(async () =>
+    root.render(
+      h(
+        browser.PoolProvider,
+        null,
+        h(Name, { ctx: browser, id: 2 }),
+        h(Name, { ctx: browser, id: 4 }),
+      ),
+    ),
+  );
+  expect(container.textContent).toBe("BobDi");
+  expect(requested).toEqual([]);
+  await React.act(async () => root.unmount());
+  expect(live[id]).toBeUndefined(); // the page no longer holds the pool
+  container.remove();
+});

@@ -4,6 +4,8 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -396,6 +398,24 @@ export type PoolContext<S extends SchemaShape> = {
   };
 };
 
+export type PoolContextOptions = {
+  /**
+   * `useServerInsertedHTML` from `next/navigation`, or a framework's
+   * equivalent. Data that `useSuspenseData` fetches during the server render
+   * then streams to the browser with the HTML, so pages need no prefetch.
+   */
+  useServerInsertedHTML?: (callback: () => ReactNode) => void;
+};
+
+type Box = Record<string, Dehydrated[] | { push: (state: Dehydrated) => void }>;
+const box = () => ((globalThis as { __laguz?: Box }).__laguz ??= {});
+
+// Entries the browser received before its provider existed, queued by the scripts.
+function drain(pool: Pool, id: string) {
+  const queued = box()[id];
+  if (Array.isArray(queued)) queued.splice(0).forEach((state) => pool.hydrate(state));
+}
+
 /**
  * A React context for a pool, with hooks bound to it:
  * `export const { PoolProvider, useData } = createPoolContext(() => createPool<Schema>(fetcher))`.
@@ -403,6 +423,7 @@ export type PoolContext<S extends SchemaShape> = {
  */
 export function createPoolContext<S extends SchemaShape = any>(
   create: () => Pool<S>,
+  { useServerInsertedHTML: useInserted = () => {} }: PoolContextOptions = {},
 ): PoolContext<S> {
   const Context = createContext<Pool<S> | null>(null);
   const usePool = () => {
@@ -412,8 +433,39 @@ export function createPoolContext<S extends SchemaShape = any>(
   };
   return {
     PoolProvider({ children, state }) {
-      const [pool] = useState(create);
+      const id = useId();
+      const [pool] = useState(() => {
+        const created = create();
+        // In the browser: what the server streamed before this script ran.
+        if (typeof window !== "undefined") drain(created, id);
+        return created;
+      });
       useHydrate(pool, state);
+      // From now on, streamed entries go straight into the pool, before React
+      // hydrates the boundary that follows them in the HTML.
+      useLayoutEffect(() => {
+        drain(pool, id);
+        box()[id] = { push: (streamed: Dehydrated) => pool.hydrate(streamed) };
+        return () => void delete box()[id];
+      }, [pool, id]);
+      // On the server: every flush of HTML carries the entries settled since the last one.
+      const sent = useRef(new Map<string, number>()).current;
+      useInserted(() => {
+        const fresh = pool.dehydrate().filter((e) => {
+          const key = JSON.stringify([e.root, e.args]);
+          if (sent.get(key) === e.at) return false;
+          sent.set(key, e.at);
+          return true;
+        });
+        if (!fresh.length) return null;
+        const json = JSON.stringify(fresh).replace(/</g, "\\u003c");
+        const target = JSON.stringify(id);
+        return createElement("script", {
+          dangerouslySetInnerHTML: {
+            __html: `((l)=>(l[${target}]=l[${target}]||[]).push(${json}))(globalThis.__laguz=globalThis.__laguz||{})`,
+          },
+        });
+      });
       return createElement(Context.Provider, { value: pool }, children);
     },
     Hydrate({ state, children }) {
