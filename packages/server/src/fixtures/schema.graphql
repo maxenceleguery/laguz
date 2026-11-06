@@ -1,0 +1,56 @@
+"""
+A person.
+"""
+type User implements Node {
+  id: ID!
+  name: String!
+  role: Role!
+  manager: User
+  avatar(size: Int = 32): String!
+  projects(first: Int, state: State): [Project!]!
+  tags: [String]
+  joinedAt: DateTime
+}
+
+type Project implements Node {
+  id: ID!
+  name: String!
+  owner: User!
+}
+
+interface Node {
+  id: ID!
+}
+
+union SearchResult = User | Project
+
+enum Role {
+  ADMIN
+  MEMBER
+}
+
+enum State {
+  OPEN
+  CLOSED
+}
+
+enum Direction {
+  ASC
+  DESC
+}
+
+input ProjectOrder {
+  direction: Direction!
+  nullsLast: Boolean
+}
+
+scalar DateTime
+
+type Query {
+  user(id: ID!): User
+  users(role: Role): [User!]!
+  projects(order: ProjectOrder, ids: [ID!]): [Project!]!
+  search(text: String!): [SearchResult!]!
+  "Number of users."
+  count: Int!
+}

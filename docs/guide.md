@@ -98,6 +98,40 @@ useData(
 Values forwarded by `@laguzjs/server` through `ref()` are typed by the argument
 they fill, so a referenced enum field can feed an enum argument.
 
+## Typed results
+
+Generate TypeScript types from your schema once, and again whenever it changes.
+`laguz-types` ships with `@laguzjs/server` and reads an SDL file, an
+introspection result, or a running endpoint:
+
+```sh
+npx laguz-types schema.graphql -o src/schema.generated.ts --scalar DateTime=string
+npx laguz-types https://api.example.com/graphql -o src/schema.generated.ts
+```
+
+Create the pool with the generated `Schema`:
+
+```ts
+import type { Schema } from "./schema.generated";
+
+const pool = createPool<Schema>(httpFetcher("/graphql", { stream: true }));
+
+const { data } = useData(pool, "user", { id: 1 }, [
+  "name",
+  { projects: { args: { first: 3 }, fields: ["id", "name"] } },
+]);
+// data: { name: string; projects: { id: string; name: string }[] } | null | undefined
+```
+
+Root fields, their arguments, field names and field arguments are checked, and
+editors autocomplete field names inside the selection. Object fields need a
+nested selection. Enum arguments take `enumValue()` of one of the enum's
+values. Custom scalars are `unknown` unless mapped with `--scalar`.
+
+On a union or an interface, only the fields shared by every member can be
+selected, since laguz doesn't send fragments. Without a schema type, pools and
+hooks accept any selection and return `any`.
+
 ## React hooks
 
 All hooks come from `@laguzjs/client/react`.
@@ -258,17 +292,18 @@ server in `bench/server.ts` does). Behind nginx, disable `proxy_buffering` and
 
 ## Compared with TanStack Query
 
-|                        | TanStack Query                      | laguz                                                                        |
-| ---------------------- | ----------------------------------- | ---------------------------------------------------------------------------- |
-| Requests               | one per query                       | one per commit, merged by root field and arguments                           |
-| Stale-while-revalidate | `staleTime`                         | `staleTime`; the merged entry refetches as a whole                           |
-| Retries                | 3, exponential backoff              | 3, exponential backoff, batched                                              |
-| Optimistic updates     | `onMutate` with manual rollback     | `pool.mutate` with `optimistic` and automatic rollback                       |
-| Invalidation           | one request per query               | one request for everything invalidated                                       |
-| Dependent queries      | `enabled`, one round trip per level | `null` arguments, or `ref()`: one round trip with the server package         |
-| Infinite queries       | pages refetched one after the other | all pages in one request, optional prefetch                                  |
-| Suspense               | `useSuspenseQuery`                  | `useSuspenseData`, one boundary per component                                |
-| Not available yet      |                                     | keeping previous data while arguments change, devtools, request cancellation |
+|                        | TanStack Query                       | laguz                                                                        |
+| ---------------------- | ------------------------------------ | ---------------------------------------------------------------------------- |
+| Requests               | one per query                        | one per commit, merged by root field and arguments                           |
+| Stale-while-revalidate | `staleTime`                          | `staleTime`; the merged entry refetches as a whole                           |
+| Retries                | 3, exponential backoff               | 3, exponential backoff, batched                                              |
+| Optimistic updates     | `onMutate` with manual rollback      | `pool.mutate` with `optimistic` and automatic rollback                       |
+| Invalidation           | one request per query                | one request for everything invalidated                                       |
+| Dependent queries      | `enabled`, one round trip per level  | `null` arguments, or `ref()`: one round trip with the server package         |
+| Infinite queries       | pages refetched one after the other  | all pages in one request, optional prefetch                                  |
+| Result types           | written by hand or by a codegen step | generated from the schema, inferred from each selection                      |
+| Suspense               | `useSuspenseQuery`                   | `useSuspenseData`, one boundary per component                                |
+| Not available yet      |                                      | keeping previous data while arguments change, devtools, request cancellation |
 
 ## Limitations
 

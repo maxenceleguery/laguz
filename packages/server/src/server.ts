@@ -17,6 +17,8 @@ import {
   type ValueNode,
 } from "graphql";
 
+export { generateTypes, type TypesOptions } from "./codegen.ts";
+
 /** Protocol version announced in `extensions.laguz`. See PROTOCOL.md. */
 export const PROTOCOL = 1;
 
