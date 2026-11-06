@@ -1,6 +1,6 @@
 import { afterAll, expect, test } from "bun:test";
 import { createPool, httpFetcher, ref } from "@laguzjs/client";
-import { buildSchema, execute } from "graphql";
+import { buildSchema, execute, validate } from "graphql";
 import { batchLoader, createHandler, ndjson, splitExecute } from "./server.ts";
 
 const schema = buildSchema(`
@@ -186,4 +186,70 @@ test("createHandler answers 405 to anything but POST", async () => {
   const res = await handler(new Request("http://x?query={fast}"));
   expect(res.status).toBe(405);
   expect(res.headers.get("allow")).toBe("POST");
+});
+
+const countingValidate = () => {
+  const calls = { n: 0 };
+  const fn: typeof validate = (...args) => {
+    calls.n++;
+    return validate(...args);
+  };
+  return { calls, fn };
+};
+const run = async (source: string, check: typeof validate) => {
+  const out: any[] = [];
+  for await (const r of splitExecute({
+    schema,
+    source,
+    rootValue,
+    contextValue: ctx(),
+    validate: check,
+  }))
+    out.push(r);
+  return out;
+};
+
+test("a valid batch is validated in one pass, not once per field", async () => {
+  const { calls, fn } = countingValidate();
+  await run("{ q0: fast q1: user(id: 1) { name } q2: user(id: 2) { teamId } }", fn);
+  expect(calls.n).toBe(1);
+});
+
+test("a repeated query is not parsed or validated again", async () => {
+  const { calls, fn } = countingValidate();
+  const source = "{ q0: fast q1: user(id: 3) { name } }";
+  await run(source, fn);
+  const again = await run(source, fn);
+  expect(calls.n).toBe(1);
+  expect(again.map((r) => Object.keys(r.data)[0]).sort()).toEqual(["q0", "q1"]);
+});
+
+test("fields with forwarded values are still validated once their values are known", async () => {
+  const { calls, fn } = countingValidate();
+  const out = await run(
+    "{ q0: user(id: 1) { teamId } q1: team(id: $_ref__q0__teamId) { name } }",
+    fn,
+  );
+  expect(out.find((r) => r.data.q1)?.data.q1).toEqual({ name: "team t1" });
+  expect(calls.n).toBe(2); // the batch, then the field whose argument was substituted
+});
+
+test("a field whose execute throws reports an error, and the other fields still arrive", async () => {
+  const throwing: typeof execute = (args) => {
+    const field = (args.document.definitions[0] as any).selectionSet.selections[0];
+    if (field.alias?.value === "q0") throw new Error("plugin crashed");
+    return execute(args);
+  };
+  const out: any[] = [];
+  for await (const r of splitExecute({
+    schema,
+    source: "{ q0: fast q1: slow }",
+    rootValue,
+    execute: throwing,
+  })) {
+    out.push(r);
+  }
+  expect(out).toHaveLength(2);
+  expect(out.some((r) => r.errors?.[0]?.message === "plugin crashed")).toBe(true);
+  expect(out.some((r) => r.data?.q1 === 1)).toBe(true);
 });

@@ -53,6 +53,11 @@ function toLiteral(v: unknown): ValueNode {
   return { kind: Kind.STRING, value: String(v) };
 }
 
+const toGraphQLError = (err: unknown) =>
+  err instanceof GraphQLError
+    ? err
+    : new GraphQLError(err instanceof Error ? err.message : String(err));
+
 function failed(
   alias: string | undefined,
   errors: string | readonly GraphQLError[],
@@ -96,6 +101,42 @@ export async function* splitExecute(options: ExecuteOptions): AsyncGenerator<Exe
   }
 }
 
+const CACHE_SIZE = 500;
+type Prepared = {
+  doc: DocumentNode;
+  errors: readonly GraphQLError[];
+  /** Placeholders per root field, computed on first use. */
+  refs?: ReturnType<typeof refsIn>[];
+};
+// Parsed documents and their validation errors, per validate function and
+// schema. A page sends the same composed query on every render, so most
+// requests skip both steps.
+const preparedCache = new WeakMap<typeof validate, WeakMap<GraphQLSchema, Map<string, Prepared>>>();
+
+// `$_ref__` placeholders are undeclared on purpose: they are replaced before
+// their field runs, and that field is validated again at that point.
+const isPlaceholderError = (err: GraphQLError) => err.message.startsWith('Variable "$_ref__');
+
+function prepare(schema: GraphQLSchema, source: string, check: typeof validate): Prepared {
+  let bySchema = preparedCache.get(check);
+  if (!bySchema) preparedCache.set(check, (bySchema = new WeakMap()));
+  let cache = bySchema.get(schema);
+  if (!cache) bySchema.set(schema, (cache = new Map()));
+
+  const hit = cache.get(source);
+  if (hit) {
+    // Map keeps insertion order: re-inserting makes it the most recently used.
+    cache.delete(source);
+    cache.set(source, hit);
+    return hit;
+  }
+  const doc = parse(source);
+  const prepared = { doc, errors: check(schema, doc) };
+  cache.set(source, prepared);
+  if (cache.size > CACHE_SIZE) cache.delete(cache.keys().next().value!);
+  return prepared;
+}
+
 async function* executeFields({
   schema,
   source,
@@ -104,33 +145,38 @@ async function* executeFields({
   execute: run = execute,
   validate: check = validate,
 }: ExecuteOptions): AsyncGenerator<ExecutionResult> {
-  let doc: DocumentNode;
+  let prepared: Prepared;
   try {
-    doc = parse(source);
+    prepared = prepare(schema, source, check);
   } catch (err) {
     yield { errors: [err as GraphQLError] };
     return;
   }
+  const { doc, errors } = prepared;
 
   const op = doc.definitions[0] as OperationDefinitionNode;
   // Only plain queries are split. Mutations, variables and fragments run as one document.
   if (doc.definitions.length !== 1 || op.operation !== "query" || op.variableDefinitions?.length) {
-    const errors = check(schema, doc);
     yield errors.length
       ? { errors }
       : await run({ schema, document: doc, rootValue, contextValue });
     return;
   }
+  // When the batch as a whole is valid, fields only need validating again if
+  // their arguments were substituted. Otherwise each field is validated on its
+  // own, so that only the invalid ones fail.
+  const batchValid = errors.every(isPlaceholderError);
 
   const single = (sel: SelectionNode): DocumentNode => ({
     ...doc,
     definitions: [{ ...op, selectionSet: { ...op.selectionSet, selections: [sel] } }],
   });
 
+  prepared.refs ??= op.selectionSet.selections.map(refsIn);
   const byAlias = new Map<string, Promise<ExecutionResult>>();
-  const fields = op.selectionSet.selections.map((sel) => {
+  const fields = op.selectionSet.selections.map((sel, index) => {
     const alias = sel.kind === Kind.FIELD ? (sel.alias ?? sel.name).value : undefined;
-    const refs = refsIn(sel);
+    const refs = prepared.refs![index]!;
     // Looked up before anything is awaited, when only earlier fields are
     // registered: a reference can't point forward, so there are no cycles.
     const deps = refs.map((r) => byAlias.get(r.alias));
@@ -149,8 +195,10 @@ async function* executeFields({
         }
         document = visit(document, { Variable: (v) => values.get(v.name.value) });
       }
-      const errors = check(schema, document);
-      if (errors.length) return failed(alias, errors);
+      if (refs.length || !batchValid) {
+        const fieldErrors = check(schema, document);
+        if (fieldErrors.length) return failed(alias, fieldErrors);
+      }
       return run({ schema, document, rootValue, contextValue });
     })();
 
@@ -158,11 +206,20 @@ async function* executeFields({
     return result;
   });
 
-  const pending = new Map(fields.map((p, i) => [i, p.then((r) => [i, r] as const)]));
-  while (pending.size) {
-    const [i, result] = await Promise.race(pending.values());
-    pending.delete(i);
-    yield result;
+  // Yield in completion order.
+  const done: ExecutionResult[] = [];
+  let wake: (() => void) | undefined;
+  for (const field of fields) {
+    field
+      .catch((err): ExecutionResult => ({ errors: [toGraphQLError(err)] }))
+      .then((result) => {
+        done.push(result);
+        wake?.();
+      });
+  }
+  for (let yielded = 0; yielded < fields.length; yielded++) {
+    if (!done.length) await new Promise<void>((resolve) => (wake = resolve));
+    yield done.shift()!;
   }
 }
 

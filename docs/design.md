@@ -47,6 +47,21 @@ placeholder naming an earlier field of the same request, and the server
 substitutes the value once that field resolves. References may only point
 backwards, so a request can't contain a cycle.
 
+## Why not Rust
+
+The client spends tens of microseconds per batch on a typical page, against
+round trips of tens to hundreds of milliseconds, and parses responses with the
+engine's native `JSON.parse`, which WebAssembly can't beat when the result has
+to be JavaScript objects.
+
+On the server, execution has to stay in JavaScript because resolvers are
+JavaScript. The expensive step was validation, and it was expensive because the
+first version validated every root field separately: 19 passes instead of one.
+Validating once and caching the result made the server cheaper than plain
+graphql-js on repeated queries (see the server CPU benchmark), which a native
+validator could not have done without also shipping the AST back and forth
+across the boundary.
+
 ## Borrowed from processor design
 
 Much of the pool reads like the front end of a processor: components issue

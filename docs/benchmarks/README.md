@@ -60,6 +60,24 @@ Over HTTP/2 on a fast network the latencies are close, and the difference is
 in requests and server work. Without streaming (`pool` mode), every widget
 waits for the slowest field.
 
+## Server CPU
+
+`bun bench/server-cpu.ts` measures the CPU cost of one request for the
+dashboard's composed query (19 root fields), with in-memory resolvers so that
+only GraphQL work is counted:
+
+| Server                                   | CPU per request | vs graphql-js |
+| ---------------------------------------- | --------------: | ------------: |
+| graphql-js `graphql()`                   |          562 µs |            1x |
+| `@laguzjs/server`, query seen before     |          201 µs |         0.35x |
+| `@laguzjs/server`, new query             |          942 µs |         1.66x |
+
+Most of a request's CPU goes to validation (about 380 µs here). The server
+validates a batch once, validates fields individually only when the batch is
+invalid or a field's arguments were filled in from another field, and caches
+parsed and validated documents: a page sends the same composed query every time
+it renders.
+
 ## Suspense
 
 `SLOW_MS=400 bun bench/suspense.ts` measures how React 19 Suspense affects
