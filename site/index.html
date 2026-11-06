@@ -6,7 +6,7 @@
     <title>laguz: one GraphQL request per React render</title>
     <meta
       name="description"
-      content="laguz batches the GraphQL queries your React components declare into one request per render, and streams each field back as soon as it resolves."
+      content="laguz batches the GraphQL queries your React components declare into one request per render, streams each field back as soon as it resolves, and types everything from your schema."
     />
     <meta name="author" content="Maxence Leguery" />
     <link rel="canonical" href="https://laguz.maxenceleguery.net/" />
@@ -51,7 +51,16 @@
         "programmingLanguage": "TypeScript",
         "runtimePlatform": ["Node.js", "Bun", "Deno", "Browser"],
         "license": "https://opensource.org/licenses/MIT",
-        "keywords": ["GraphQL", "React", "batching", "data fetching", "streaming"],
+        "keywords": [
+          "GraphQL",
+          "React",
+          "batching",
+          "data fetching",
+          "streaming",
+          "server rendering",
+          "Next.js",
+          "TypeScript"
+        ],
         "author": {
           "@type": "Person",
           "name": "Maxence Leguery",
@@ -125,6 +134,8 @@
       pre {
         font-family: var(--mono);
         font-size: 0.86rem;
+        /* Code reads as typed: "--watch" stays two hyphens, "=>" stays an arrow of two characters. */
+        font-variant-ligatures: none;
       }
       p code {
         background: var(--stone-deep);
@@ -452,6 +463,44 @@
         font-weight: 600;
       }
 
+      /* What else: three groups, each item marked with a small branch of the rune. */
+      .groups {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 2.5rem;
+        margin-top: 1.5rem;
+      }
+      .groups h3 {
+        font-size: 1rem;
+        margin-bottom: 0.25rem;
+      }
+      .groups dl {
+        margin: 0;
+      }
+      .groups dt {
+        position: relative;
+        font-weight: 600;
+        margin-top: 1rem;
+        padding-left: 1.1rem;
+      }
+      .groups dt::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0.55em;
+        width: 0.75rem;
+        height: 2px;
+        background: var(--lake);
+        opacity: 0.7;
+        transform-origin: 0 50%;
+        transform: rotate(var(--angle));
+      }
+      .groups dd {
+        margin: 0.15rem 0 0 1.1rem;
+        color: var(--lichen);
+        font-size: 0.95rem;
+      }
+
       .pair {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -539,7 +588,8 @@
           transform-origin: 0 0;
         }
         .step,
-        .pair {
+        .pair,
+        .groups {
           grid-template-columns: minmax(0, 1fr);
           gap: 1rem;
         }
@@ -654,12 +704,15 @@
               <h3>Components ask for what they need</h3>
               <p>
                 Each component selects its own fields with a hook, as it would with any data
-                library. It receives exactly that selection, under its own names.
+                library. It receives exactly that selection, under its own names, typed from your
+                schema.
               </p>
             </div>
-            <pre><code>function Header() {
-  const { data } = useData(pool, "user", { id: 1 },
-    ["name", { avatar: { args: { size: 32 } } }]);
+            <pre><code>const user = query("user", { id: 1 },
+  ["name", { avatar: { args: { size: 32 } } }]);
+
+function Header() {
+  const { data } = useData(user);
   return &lt;h1&gt;{data?.name}&lt;/h1&gt;;
 }</code></pre>
           </div>
@@ -695,6 +748,66 @@
 {"data":{"q1":{"leadId":"3"}}}
 <span class="c">… 300 ms later</span>
 {"data":{"q2":{"revenue":48210.5}}}</code></pre>
+          </div>
+        </section>
+
+        <section aria-labelledby="else-title">
+          <h2 id="else-title">Everything else a data library does</h2>
+          <p class="quiet measure">
+            Batching changes how requests travel, not what you expect from them.
+          </p>
+          <div class="groups">
+            <div>
+              <h3>In the browser</h3>
+              <dl>
+                <dt>Typed from your schema</dt>
+                <dd>
+                  Selections, arguments and results are checked, and field names autocomplete.
+                </dd>
+                <dt>Mutations</dt>
+                <dd>
+                  Optimistic updates roll back on failure, then one request refetches what changed.
+                </dd>
+                <dt>Refetch on focus, reconnect, interval</dt>
+                <dd>Everything due at the same moment goes out in one request.</dd>
+                <dt>Lists and dependencies</dt>
+                <dd>
+                  Infinite pages refresh together, and arguments can read another query's result.
+                </dd>
+                <dt>Previous data, cancellation</dt>
+                <dd>
+                  Filters keep the last results on screen; requests nobody waits for are aborted.
+                </dd>
+                <dt>Devtools</dt>
+                <dd>Each request with the time its fields arrived, and the cache.</dd>
+              </dl>
+            </div>
+            <div>
+              <h3>Server rendering</h3>
+              <dl>
+                <dt>Queries defined once</dt>
+                <dd>The same query loads in a server component and reads in a client one.</dd>
+                <dt>Load and hydrate</dt>
+                <dd>The browser starts with the data the server loaded, without asking again.</dd>
+                <dt>Streaming with Next.js</dt>
+                <dd>Components suspend on their queries and the data arrives with the HTML.</dd>
+                <dt>Warnings in development</dt>
+                <dd>Told when the server loaded less than the page reads.</dd>
+              </dl>
+            </div>
+            <div>
+              <h3>On the server</h3>
+              <dl>
+                <dt>A handler for any runtime</dt>
+                <dd>Node, Bun, Deno, Workers: anything with Request and Response.</dd>
+                <dt>A GraphQL Yoga plugin</dt>
+                <dd>Keep your server, its context and its plugins: add <code>useLaguz()</code>.</dd>
+                <dt>Express, Fastify, Node</dt>
+                <dd>Mounted with <code>toNodeHandler()</code>, next to Apollo Server too.</dd>
+                <dt>Tests on your real schema</dt>
+                <dd><code>localFetcher()</code> runs it in-process, with real validation.</dd>
+              </dl>
+            </div>
           </div>
         </section>
 
@@ -751,29 +864,46 @@
 
         <section aria-labelledby="start-title">
           <h2 id="start-title">Get started</h2>
+          <p class="quiet measure">
+            Generate the types from your schema, and keep them current while you work:
+          </p>
+          <pre><code>npx laguz-types schema.graphql -o schema.generated.ts --watch</code></pre>
           <div class="pair">
             <div>
               <h3>In the browser</h3>
-              <pre><code>import { createPool, httpFetcher } from "@laguzjs/client";
-import { useData } from "@laguzjs/client/react";
+              <pre><code>import { createPool, httpFetcher, queries }
+  from "@laguzjs/client";
+import { createPoolContext }
+  from "@laguzjs/client/react";
 
-const pool = createPool(
-  httpFetcher("/graphql", { stream: true }),
-);</code></pre>
+const fetcher = httpFetcher("/graphql",
+  { stream: true });
+export const query = queries&lt;Schema&gt;();
+export const { PoolProvider, useData } =
+  createPoolContext(() =>
+    createPool&lt;Schema&gt;(fetcher));</code></pre>
             </div>
             <div>
               <h3>On the server</h3>
-              <pre><code>import { batchLoader, createHandler } from "@laguzjs/server";
+              <pre><code>import { createHandler, useLaguz }
+  from "@laguzjs/server";
 
-export const POST = createHandler({
-  schema,
-  context: () => ({ users: batchLoader(loadUsers) }),
-});</code></pre>
+export const POST =
+  createHandler({ schema, context });
+
+<span class="c">// or, on GraphQL Yoga:</span>
+createYoga({ schema, plugins: [useLaguz()] });</code></pre>
             </div>
           </div>
           <div class="next">
             <a href="https://github.com/maxenceleguery/laguz/blob/main/docs/guide.md"
               >Read the guide</a
+            >
+            <a href="https://github.com/maxenceleguery/laguz/blob/main/docs/recipes.md"
+              >Recipes: Supabase, Clerk, Hasura</a
+            >
+            <a href="https://github.com/maxenceleguery/laguz/tree/main/examples/nextjs"
+              >A Next.js example</a
             >
             <a href="https://github.com/maxenceleguery/laguz/blob/main/docs/protocol.md"
               >The wire protocol</a

@@ -1,11 +1,15 @@
 # laguz
 
-> laguz batches the GraphQL queries that React components declare into one request per render, and streams each field back as soon as it resolves. Two packages: @laguzjs/client (cache, HTTP transport, React hooks; works with any GraphQL server) and @laguzjs/server (wraps graphql-js: runs each root field on its own, streams NDJSON, resolves dependent queries in one round trip). MIT licensed.
+> laguz batches the GraphQL queries that React components declare into one request per render, and streams each field back as soon as it resolves. Two packages: @laguzjs/client (cache, HTTP transport, React hooks, devtools; works with any GraphQL server) and @laguzjs/server (wraps graphql-js: runs each root field on its own, streams NDJSON, resolves dependent queries in one round trip; as a fetch handler, a GraphQL Yoga plugin or a Node adapter; generates TypeScript types). MIT licensed.
+
+Features: types generated from the schema (laguz-types, with --watch), typed queries and mutations, query descriptors shared by server and browser (queries<Schema>()), optimistic mutations (useMutation), refetch on focus, reconnect and interval batched into one request, infinite lists, dependent queries (ref()), keepPrevious, request cancellation, server rendering (dehydrate/hydrate, createPoolContext) and streaming with Next.js (useServerInsertedHTML), development warnings for hydration misses, in-process testing (localFetcher), devtools (LaguzDevtools).
 
 ## Docs
 
 - [README](https://github.com/maxenceleguery/laguz/blob/main/README.md): install, usage, measured results
-- [Guide](https://github.com/maxenceleguery/laguz/blob/main/docs/guide.md): concepts and full API (useData, useSuspenseData, useInfiniteData, ref, mutate, createHandler)
+- [Guide](https://github.com/maxenceleguery/laguz/blob/main/docs/guide.md): concepts and full API (useData, useSuspenseData, useInfiniteData, useMutation, createPoolContext, queries, ref, createHandler, useLaguz, toNodeHandler, localFetcher, LaguzDevtools)
+- [Recipes](https://github.com/maxenceleguery/laguz/blob/main/docs/recipes.md): Supabase, Clerk, cookie sessions, Hasura
+- [Next.js example](https://github.com/maxenceleguery/laguz/tree/main/examples/nextjs): server components, streaming, mutations, devtools
 - [Protocol](https://github.com/maxenceleguery/laguz/blob/main/docs/protocol.md): the wire format between client and server
 - [Design notes](https://github.com/maxenceleguery/laguz/blob/main/docs/design.md): why a React commit is the batch boundary
 - [Benchmarks](https://github.com/maxenceleguery/laguz/tree/main/docs/benchmarks): methodology and results against TanStack Query
