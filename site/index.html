@@ -3,47 +3,97 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>laguz: one GraphQL request per render</title>
+    <title>laguz: one GraphQL request per React render</title>
     <meta
       name="description"
       content="laguz batches the GraphQL queries your React components declare into one request per render, and streams each field back as soon as it resolves."
     />
-    <meta property="og:title" content="laguz" />
+    <meta name="author" content="Maxence Leguery" />
+    <link rel="canonical" href="https://laguz.maxenceleguery.net/" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="laguz" />
+    <meta property="og:title" content="laguz: one GraphQL request per React render" />
     <meta
       property="og:description"
-      content="One GraphQL request per render, streamed back field by field."
+      content="Batch the GraphQL queries of a React render into one request, streamed back field by field."
     />
-    <meta property="og:url" content="https://laguz.maxenceleguery.net" />
-    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <meta property="og:url" content="https://laguz.maxenceleguery.net/" />
+    <meta property="og:image" content="https://laguz.maxenceleguery.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="The laguz rune drawn as twenty strands joining one stave, next to the words: One GraphQL request per React render."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <meta name="theme-color" content="#e3e5e0" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#101b20" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link
-      href="https://fonts.googleapis.com/css2?family=Fragment+Mono&family=Schibsted+Grotesk:wght@400;500;700;800&display=swap"
-      rel="stylesheet"
+      rel="preload"
+      href="/fonts/familjen-grotesk-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
     />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareSourceCode",
+        "name": "laguz",
+        "description": "Batches the GraphQL queries of a React render into one request and streams each field back as soon as it resolves.",
+        "url": "https://laguz.maxenceleguery.net/",
+        "codeRepository": "https://github.com/maxenceleguery/laguz",
+        "programmingLanguage": "TypeScript",
+        "runtimePlatform": ["Node.js", "Bun", "Deno", "Browser"],
+        "license": "https://opensource.org/licenses/MIT",
+        "keywords": ["GraphQL", "React", "batching", "data fetching", "streaming"],
+        "author": {
+          "@type": "Person",
+          "name": "Maxence Leguery",
+          "url": "https://maxenceleguery.net"
+        }
+      }
+    </script>
     <style>
+      @font-face {
+        font-family: "Familjen Grotesk";
+        src: url("/fonts/familjen-grotesk-latin.woff2") format("woff2");
+        font-weight: 400 700;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: "Fragment Mono";
+        src: url("/fonts/fragment-mono-latin.woff2") format("woff2");
+        font-display: swap;
+      }
       :root {
-        --ice: #e9efee;
-        --ice-deep: #dbe4e3;
-        --fjord: #142b33;
-        --slate: #5b6e73;
-        --stone: #a3afad;
-        --current: #1f7a78;
-        --rule: #c9d4d3;
-        --code-bg: #dfe8e7;
-        --sans: "Schibsted Grotesk", system-ui, sans-serif;
+        --stone: #e3e5e0;
+        --stone-deep: #d5d9d3;
+        --ink: #1d2a2e;
+        --lichen: #5e6b6a;
+        --pebble: #a7aea9;
+        --lake: #2b6c84;
+        --rule: #c7ccc6;
+        --sans: "Familjen Grotesk", system-ui, sans-serif;
         --mono: "Fragment Mono", ui-monospace, monospace;
+        --gutter: 8rem;
+        --spine: 3rem;
+        --angle: 41deg;
       }
       @media (prefers-color-scheme: dark) {
         :root {
-          --ice: #0f2228;
-          --ice-deep: #132b32;
-          --fjord: #dfe9e8;
-          --slate: #92a6aa;
-          --stone: #56686b;
-          --current: #5cc0ba;
-          --rule: #23404a;
-          --code-bg: #15303a;
+          --stone: #101b20;
+          --stone-deep: #172830;
+          --ink: #e2e8e6;
+          --lichen: #94a5a7;
+          --pebble: #52625f;
+          --lake: #7db9cc;
+          --rule: #22363d;
         }
       }
 
@@ -55,133 +105,180 @@
       }
       body {
         margin: 0;
-        background: var(--ice);
-        color: var(--fjord);
+        background: var(--stone);
+        color: var(--ink);
         font: 400 1.0625rem/1.6 var(--sans);
       }
       a {
         color: inherit;
         text-decoration-thickness: 1px;
-        text-underline-offset: 0.2em;
+        text-underline-offset: 0.22em;
       }
       a:hover {
-        color: var(--current);
+        color: var(--lake);
       }
       :focus-visible {
-        outline: 2px solid var(--current);
+        outline: 2px solid var(--lake);
         outline-offset: 3px;
-        border-radius: 2px;
       }
       code,
       pre {
         font-family: var(--mono);
-        font-size: 0.875rem;
+        font-size: 0.86rem;
       }
       p code {
-        background: var(--code-bg);
+        background: var(--stone-deep);
         padding: 0.1em 0.35em;
-        border-radius: 4px;
       }
 
-      .wrap {
-        max-width: 64rem;
+      /* Page frame: the rune's stave runs down the left as the spine. */
+      .page {
+        position: relative;
+        max-width: 72rem;
         margin: 0 auto;
-        padding: 0 1.5rem;
+        padding: 0 1.75rem 0 var(--gutter);
       }
-      .measure {
-        max-width: 38rem;
+      .spine {
+        position: absolute;
+        left: calc(var(--spine) - 1px);
+        top: 34.4rem;
+        bottom: 0;
+        width: 2px;
+        background: var(--lake);
+        opacity: 0.45;
+        transform-origin: top;
       }
 
       header.top {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding-block: 1.5rem;
+        padding-block: 1.6rem;
       }
       .brand {
         display: flex;
         align-items: center;
-        gap: 0.6rem;
-        font-weight: 800;
-        font-size: 1.25rem;
+        gap: 0.55rem;
+        font-weight: 700;
+        font-size: 1.3rem;
         letter-spacing: -0.01em;
         text-decoration: none;
       }
       .brand svg {
-        width: 1.1rem;
-        height: 1.6rem;
+        width: 1rem;
+        height: 1.5rem;
+        color: var(--lake);
       }
       nav.links {
         display: flex;
-        gap: 1.5rem;
+        gap: 1.75rem;
         font-weight: 500;
       }
       nav.links a {
         text-decoration: none;
       }
 
+      /* Hero: twenty strands braided into one stave. */
       .hero {
-        padding-block: 4rem 3rem;
+        position: relative;
+        min-height: 29rem;
+        padding: 3.5rem 0 4rem 15rem;
+      }
+      .rune {
+        position: absolute;
+        left: calc(var(--spine) - var(--gutter) - 40px);
+        top: 0;
+        width: 320px;
+        height: 464px;
+        overflow: visible;
+      }
+      .rune line {
+        stroke: var(--lake);
+        stroke-width: 1.6;
+      }
+      .rune .stave {
+        fill: url(#stave-fade);
       }
       h1 {
-        font-size: clamp(2.4rem, 6vw, 4.4rem);
-        line-height: 1.02;
+        font-size: clamp(2.6rem, 5.4vw, 4.5rem);
+        line-height: 1.03;
         letter-spacing: -0.035em;
-        font-weight: 800;
+        font-weight: 700;
         margin: 0 0 1.5rem;
-        max-width: 14ch;
+        max-width: 13ch;
       }
       .lead {
-        font-size: 1.25rem;
+        font-size: 1.22rem;
         line-height: 1.55;
-        color: var(--slate);
+        color: var(--lichen);
         margin: 0 0 2rem;
+        max-width: 36rem;
       }
       .install {
         display: inline-flex;
         align-items: center;
         gap: 1rem;
-        background: var(--fjord);
-        color: var(--ice);
-        border-radius: 8px;
-        padding: 0.7rem 0.7rem 0.7rem 1.1rem;
+        background: var(--ink);
+        color: var(--stone);
+        padding: 0.65rem 0.65rem 0.65rem 1.1rem;
       }
       .install code {
         font-size: 0.95rem;
       }
       .install button {
-        font: 500 0.875rem var(--sans);
-        color: var(--fjord);
-        background: var(--ice);
+        font: 600 0.875rem var(--sans);
+        color: var(--ink);
+        background: var(--stone);
         border: 0;
-        border-radius: 5px;
-        padding: 0.35rem 0.75rem;
+        padding: 0.35rem 0.8rem;
         cursor: pointer;
         min-width: 5rem;
       }
 
-      /* The replay */
-      .replay {
-        padding-block: 2rem 4rem;
-        --label: 7.5rem;
+      /* Sections hang off the spine by a branch cut at the rune's angle. */
+      section {
+        padding-block: 3.5rem;
       }
+      h2 {
+        position: relative;
+        font-size: 1.75rem;
+        line-height: 1.2;
+        letter-spacing: -0.02em;
+        font-weight: 700;
+        margin: 0 0 1rem;
+      }
+      h2::before {
+        content: "";
+        position: absolute;
+        left: calc(var(--spine) - var(--gutter));
+        top: 0.15em;
+        width: 3.4rem;
+        height: 2px;
+        background: var(--lake);
+        opacity: 0.45;
+        transform-origin: 0 50%;
+        transform: rotate(var(--angle));
+      }
+      h3 {
+        font-size: 1.15rem;
+        letter-spacing: -0.01em;
+        font-weight: 600;
+        margin: 0 0 0.5rem;
+      }
+      .quiet {
+        color: var(--lichen);
+      }
+      .measure {
+        max-width: 38rem;
+      }
+
+      /* The tally: when each widget got its data, carved on a line. */
       .replay-head {
         display: flex;
         flex-wrap: wrap;
         align-items: baseline;
         justify-content: space-between;
         gap: 1rem;
-        margin-bottom: 1.5rem;
-      }
-      h2 {
-        font-size: 1.6rem;
-        line-height: 1.2;
-        letter-spacing: -0.02em;
-        font-weight: 700;
-        margin: 0 0 0.75rem;
-      }
-      .replay-head h2 {
-        margin: 0;
       }
       .controls {
         display: flex;
@@ -189,101 +286,102 @@
       }
       .controls button {
         font: 500 0.9rem var(--sans);
-        color: var(--fjord);
+        color: var(--ink);
         background: transparent;
         border: 1px solid var(--rule);
-        border-radius: 6px;
-        padding: 0.4rem 0.8rem;
+        padding: 0.4rem 0.85rem;
         cursor: pointer;
       }
       .controls button[aria-pressed="true"] {
-        background: var(--fjord);
-        color: var(--ice);
-        border-color: var(--fjord);
+        background: var(--ink);
+        color: var(--stone);
+        border-color: var(--ink);
       }
-      .legend {
+      .key {
         display: flex;
         flex-wrap: wrap;
-        gap: 0.5rem 2rem;
-        margin-bottom: 1rem;
+        gap: 0.5rem 2.5rem;
+        margin: 0.5rem 0 1.5rem;
         font-size: 0.95rem;
       }
-      .legend span {
+      .key span {
         display: inline-flex;
         align-items: center;
-        gap: 0.5rem;
+        gap: 0.6rem;
       }
-      .legend b {
+      .key b {
         font-weight: 700;
         font-variant-numeric: tabular-nums;
       }
-      .dot {
-        width: 0.7rem;
-        height: 0.7rem;
-        border-radius: 50%;
+      .key i {
         display: inline-block;
+        width: 2px;
+        height: 0.8rem;
       }
-      .dot.tanstack {
-        background: var(--stone);
+      .key .laguz i {
+        background: var(--lake);
+        transform: translateY(-0.25rem);
       }
-      .dot.laguz {
-        background: var(--current);
+      .key .tanstack i {
+        background: var(--pebble);
+        transform: translateY(0.25rem);
       }
-
-      .chart {
+      .tally {
+        --label: 7rem;
         position: relative;
       }
       .row {
         display: grid;
         grid-template-columns: var(--label) 1fr;
         align-items: center;
-        height: 1.35rem;
+        height: 1.55rem;
       }
       .row .name {
-        font-size: 0.8rem;
-        color: var(--slate);
+        font-size: 0.78rem;
+        color: var(--lichen);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
         padding-right: 0.75rem;
       }
-      .track {
+      .line {
         position: relative;
         height: 100%;
       }
-      .track::before {
+      .line::before {
         content: "";
         position: absolute;
         inset: 50% 0 auto;
         border-top: 1px solid var(--rule);
       }
-      .mark {
+      .cut {
         position: absolute;
+        width: 2px;
+        height: 0.72rem;
+        margin-left: -1px;
+        transform: scaleY(0);
+      }
+      .cut.laguz {
+        bottom: 50%;
+        background: var(--lake);
+        transform-origin: bottom;
+      }
+      .cut.tanstack {
         top: 50%;
-        width: 0.7rem;
-        height: 0.7rem;
-        margin: -0.35rem 0 0 -0.35rem;
-        border-radius: 50%;
-        transform: scale(0);
+        background: var(--pebble);
+        transform-origin: top;
       }
-      .mark.tanstack {
-        background: var(--stone);
-      }
-      .mark.laguz {
-        background: var(--current);
-        z-index: 1;
-      }
-      .mark.on {
-        transform: scale(1);
-        transition: transform 160ms cubic-bezier(0.3, 1.6, 0.5, 1);
+      .cut.on {
+        transform: scaleY(1);
+        transition: transform 140ms ease-out;
       }
       .now {
         position: absolute;
         top: 0;
         bottom: 1.6rem;
         width: 1px;
-        background: var(--current);
-        opacity: 0.45;
+        background: var(--lake);
+        opacity: 0.4;
         pointer-events: none;
       }
       .axis {
@@ -291,12 +389,12 @@
         margin-left: var(--label);
         height: 1.6rem;
         font-size: 0.75rem;
-        color: var(--slate);
+        color: var(--lichen);
         font-variant-numeric: tabular-nums;
       }
       .axis span {
         position: absolute;
-        top: 0.35rem;
+        top: 0.4rem;
         transform: translateX(-50%);
         white-space: nowrap;
       }
@@ -306,50 +404,31 @@
       .axis span:last-child {
         transform: translateX(-100%);
       }
-      .caption {
-        margin-top: 1.25rem;
-        color: var(--slate);
-        font-size: 0.95rem;
-      }
 
       /* How it works */
-      section.how {
-        padding-block: 3rem;
-        border-top: 1px solid var(--rule);
-      }
       .step {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
         gap: 2.5rem;
         align-items: start;
-        padding-block: 1.75rem;
+        padding-block: 1.5rem;
       }
       .step p {
         margin: 0;
-        color: var(--slate);
-      }
-      .step h3 {
-        font-size: 1.2rem;
-        letter-spacing: -0.01em;
-        margin: 0 0 0.5rem;
+        color: var(--lichen);
       }
       pre {
         margin: 0;
-        background: var(--code-bg);
-        border-radius: 8px;
+        background: var(--stone-deep);
+        border-left: 2px solid var(--lake);
         padding: 1rem 1.1rem;
         overflow-x: auto;
         line-height: 1.55;
       }
       pre .c {
-        color: var(--slate);
+        color: var(--lichen);
       }
 
-      /* Numbers */
-      section.numbers {
-        padding-block: 3rem;
-        border-top: 1px solid var(--rule);
-      }
       table {
         width: 100%;
         border-collapse: collapse;
@@ -365,19 +444,14 @@
       }
       th {
         font-weight: 500;
-        color: var(--slate);
+        color: var(--lichen);
         font-size: 0.9rem;
       }
       td.laguz {
-        color: var(--current);
-        font-weight: 700;
+        color: var(--lake);
+        font-weight: 600;
       }
 
-      /* Start */
-      section.start {
-        padding-block: 3rem 4rem;
-        border-top: 1px solid var(--rule);
-      }
       .pair {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -386,7 +460,6 @@
       }
       .pair h3 {
         font-size: 1rem;
-        margin: 0 0 0.6rem;
       }
       .next {
         display: flex;
@@ -397,239 +470,327 @@
       }
 
       footer {
-        padding-block: 2rem 3rem;
-        border-top: 1px solid var(--rule);
-        color: var(--slate);
-        font-size: 0.9rem;
+        padding-block: 2rem 3.5rem;
+        color: var(--lichen);
+        font-size: 0.92rem;
+      }
+      footer p {
+        margin: 0 0 0.4rem;
       }
 
-      @media (max-width: 760px) {
+      /* One orchestrated moment: the strands flow into the stave. */
+      @media (prefers-reduced-motion: no-preference) {
+        .rune line {
+          stroke-dasharray: 1;
+          animation: flow 900ms cubic-bezier(0.4, 0, 0.2, 1) both;
+          animation-delay: calc(var(--i) * 28ms);
+        }
+        .rune .stave {
+          animation: carve 700ms cubic-bezier(0.4, 0, 0.2, 1) 650ms both;
+        }
+        .spine {
+          animation: descend 1400ms cubic-bezier(0.4, 0, 0.2, 1) 1200ms both;
+        }
+        @keyframes flow {
+          from {
+            stroke-dashoffset: -1;
+          }
+          to {
+            stroke-dashoffset: 0;
+          }
+        }
+        @keyframes carve {
+          from {
+            clip-path: inset(0 0 100% 0);
+          }
+          to {
+            clip-path: inset(0 0 0 0);
+          }
+        }
+        @keyframes descend {
+          from {
+            transform: scaleY(0);
+          }
+          to {
+            transform: scaleY(1);
+          }
+        }
+      }
+
+      @media (max-width: 860px) {
+        :root {
+          --gutter: 1.25rem;
+        }
+        .page {
+          padding-right: 1.25rem;
+        }
+        .spine,
+        h2::before {
+          display: none;
+        }
+        .hero {
+          min-height: 0;
+          padding: 12.5rem 0 2.5rem;
+        }
+        .rune {
+          left: -0.6rem;
+          top: 0.5rem;
+          transform: scale(0.38);
+          transform-origin: 0 0;
+        }
         .step,
         .pair {
           grid-template-columns: minmax(0, 1fr);
           gap: 1rem;
         }
-        .replay {
-          --label: 5.5rem;
+        .tally {
+          --label: 5.25rem;
         }
         .row .name {
           font-size: 0.7rem;
         }
-        .hero {
-          padding-block: 2.5rem 2rem;
-        }
         nav.links {
-          gap: 1rem;
+          gap: 1.1rem;
         }
         .install {
           display: flex;
           justify-content: space-between;
         }
-      }
-      @media (prefers-reduced-motion: reduce) {
-        .mark.on {
-          transition: none;
+        section {
+          padding-block: 2.5rem;
         }
       }
     </style>
   </head>
   <body>
-    <header class="top wrap">
-      <a class="brand" href="/" aria-label="laguz home">
-        <svg viewBox="0 0 22 32" aria-hidden="true">
-          <path
-            d="M5 3v26M5 3l12 10"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="3.4"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-        </svg>
-        laguz
-      </a>
-      <nav class="links">
-        <a href="https://github.com/maxenceleguery/laguz/blob/main/docs/guide.md">Guide</a>
-        <a href="https://github.com/maxenceleguery/laguz">GitHub</a>
-      </nav>
-    </header>
+    <div class="page">
+      <div class="spine" aria-hidden="true"></div>
 
-    <main>
-      <section class="hero wrap">
-        <h1>One request per render, streamed back field by field.</h1>
-        <p class="lead measure">
-          laguz batches the GraphQL queries your React components declare into a single request per
-          commit. With its server package, each field comes back the moment it resolves, and queries
-          that depend on each other share the same round trip.
-        </p>
-        <div class="install">
-          <code id="install-cmd">npm install @laguzjs/client</code>
-          <button type="button" id="copy">Copy</button>
-        </div>
-      </section>
+      <header class="top">
+        <a class="brand" href="/" aria-label="laguz home">
+          <svg viewBox="0 0 20 30" aria-hidden="true">
+            <path d="M5 2v26M5 2.6l11 9.6" fill="none" stroke="currentColor" stroke-width="3.4" />
+          </svg>
+          laguz
+        </a>
+        <nav class="links">
+          <a href="https://github.com/maxenceleguery/laguz/blob/main/docs/guide.md">Guide</a>
+          <a href="https://github.com/maxenceleguery/laguz">GitHub</a>
+        </nav>
+      </header>
 
-      <section class="replay wrap" aria-labelledby="replay-title">
-        <div class="replay-head">
-          <h2 id="replay-title">When each widget gets its data</h2>
-          <div class="controls" role="group" aria-label="Protocol">
-            <button type="button" data-proto="h2" aria-pressed="true">HTTP/2</button>
-            <button type="button" data-proto="http/1.1" aria-pressed="false">HTTP/1.1</button>
-            <button type="button" id="replay">Replay</button>
+      <main>
+        <section class="hero">
+          <svg class="rune" viewBox="0 0 320 464" aria-hidden="true">
+            <defs>
+              <linearGradient id="stave-fade" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="var(--lake)" />
+                <stop offset="1" stop-color="var(--lake)" stop-opacity="0.45" />
+              </linearGradient>
+            </defs>
+            <g pathLength="1">
+              <line pathLength="1" x1="45.0" y1="20.3" x2="291.7" y2="166.8" style="--i: 0" />
+              <line pathLength="1" x1="44.5" y1="20.9" x2="301.2" y2="183.3" style="--i: 1" />
+              <line pathLength="1" x1="43.9" y1="21.5" x2="310.7" y2="199.8" style="--i: 2" />
+              <line pathLength="1" x1="43.4" y1="22.1" x2="282.9" y2="183.8" style="--i: 3" />
+              <line pathLength="1" x1="42.9" y1="22.7" x2="292.4" y2="200.3" style="--i: 4" />
+              <line pathLength="1" x1="42.4" y1="23.3" x2="301.9" y2="216.8" style="--i: 5" />
+              <line pathLength="1" x1="41.8" y1="23.9" x2="274.1" y2="200.8" style="--i: 6" />
+              <line pathLength="1" x1="41.3" y1="24.5" x2="283.6" y2="217.3" style="--i: 7" />
+              <line pathLength="1" x1="40.8" y1="25.1" x2="293.1" y2="233.7" style="--i: 8" />
+              <line pathLength="1" x1="40.3" y1="25.7" x2="265.2" y2="217.8" style="--i: 9" />
+              <line pathLength="1" x1="39.7" y1="26.3" x2="274.8" y2="234.2" style="--i: 10" />
+              <line pathLength="1" x1="39.2" y1="26.9" x2="246.9" y2="218.3" style="--i: 11" />
+              <line pathLength="1" x1="38.7" y1="27.5" x2="256.4" y2="234.7" style="--i: 12" />
+              <line pathLength="1" x1="38.2" y1="28.1" x2="265.9" y2="251.2" style="--i: 13" />
+              <line pathLength="1" x1="37.6" y1="28.7" x2="238.1" y2="235.2" style="--i: 14" />
+              <line pathLength="1" x1="37.1" y1="29.3" x2="247.6" y2="251.7" style="--i: 15" />
+              <line pathLength="1" x1="36.6" y1="29.9" x2="257.1" y2="268.2" style="--i: 16" />
+              <line pathLength="1" x1="36.1" y1="30.5" x2="229.3" y2="252.2" style="--i: 17" />
+              <line pathLength="1" x1="35.5" y1="31.1" x2="238.8" y2="268.7" style="--i: 18" />
+              <line pathLength="1" x1="35.0" y1="31.7" x2="248.3" y2="285.2" style="--i: 19" />
+            </g>
+            <polygon class="stave" points="31,18 49,18 41,464 39,464" />
+          </svg>
+
+          <h1>One request per render, streamed back field by field.</h1>
+          <p class="lead">
+            laguz batches the GraphQL queries your React components declare into a single request
+            per commit. With its server package, each field comes back the moment it resolves, and
+            queries that depend on each other share the same round trip.
+          </p>
+          <div class="install">
+            <code id="install-cmd">npm install @laguzjs/client</code>
+            <button type="button" id="copy">Copy</button>
           </div>
-        </div>
-        <div class="legend" aria-live="polite">
-          <span
-            ><i class="dot tanstack"></i>TanStack Query, 20 requests:
-            <b id="count-tanstack">0</b> of 20</span
-          >
-          <span><i class="dot laguz"></i>laguz, 1 request: <b id="count-laguz">0</b> of 20</span>
-        </div>
-        <div class="chart" id="chart">
-          <div class="now" id="now" hidden></div>
-        </div>
-        <p class="caption measure" id="caption"></p>
-      </section>
+        </section>
 
-      <section class="how wrap" aria-labelledby="how-title">
-        <h2 id="how-title">How it works</h2>
-
-        <div class="step">
-          <div>
-            <h3>Components ask for what they need</h3>
-            <p>
-              Each component selects its own fields with a hook, as it would with any data library.
-              It receives exactly that selection, under its own names.
-            </p>
+        <section aria-labelledby="replay-title">
+          <div class="replay-head">
+            <h2 id="replay-title">When each widget gets its data</h2>
+            <div class="controls" role="group" aria-label="Protocol">
+              <button type="button" data-proto="h2" aria-pressed="true">HTTP/2</button>
+              <button type="button" data-proto="http/1.1" aria-pressed="false">HTTP/1.1</button>
+              <button type="button" id="replay">Replay</button>
+            </div>
           </div>
-          <pre><code>function Header() {
+          <div class="key" aria-live="polite">
+            <span class="laguz"><i></i>laguz, 1 request: <b id="count-laguz">0</b> of 20</span>
+            <span class="tanstack"
+              ><i></i>TanStack Query, 20 requests: <b id="count-tanstack">0</b> of 20</span
+            >
+          </div>
+          <div class="tally" id="tally">
+            <div class="now" id="now" hidden></div>
+          </div>
+          <p class="quiet measure" id="caption"></p>
+        </section>
+
+        <section aria-labelledby="how-title">
+          <h2 id="how-title">How it works</h2>
+
+          <div class="step">
+            <div>
+              <h3>Components ask for what they need</h3>
+              <p>
+                Each component selects its own fields with a hook, as it would with any data
+                library. It receives exactly that selection, under its own names.
+              </p>
+            </div>
+            <pre><code>function Header() {
   const { data } = useData(pool, "user", { id: 1 },
     ["name", { avatar: { args: { size: 32 } } }]);
   return &lt;h1&gt;{data?.name}&lt;/h1&gt;;
 }</code></pre>
-        </div>
-
-        <div class="step">
-          <div>
-            <h3>One commit becomes one query</h3>
-            <p>
-              Everything a render asks for goes out together. Selections on the same field are
-              merged, fields already cached or in flight are skipped, and arguments can point at
-              another field's result.
-            </p>
           </div>
-          <pre><code>{
+
+          <div class="step">
+            <div>
+              <h3>One commit becomes one query</h3>
+              <p>
+                Everything a render asks for goes out together. Selections on the same field are
+                merged, fields already cached or in flight are skipped, and arguments can point at
+                another field's result.
+              </p>
+            </div>
+            <pre><code>{
   q0: user(id: 1) {
     name teamId avatar_ccrvkh: avatar(size: 32)
   }
   q1: team(id: $_ref__q0__teamId) { leadId }
   q2: stats { revenue }
 }</code></pre>
-        </div>
-
-        <div class="step">
-          <div>
-            <h3>Fields flow back as they resolve</h3>
-            <p>
-              <code>@laguzjs/server</code> runs every root field on its own and writes a line as
-              soon as one is done. Fast widgets render right away, a slow query only delays itself,
-              and an invalid field fails alone.
-            </p>
           </div>
-          <pre><code>{"data":{"q0":{"name":"Ada Lovelace", …}}}
+
+          <div class="step">
+            <div>
+              <h3>Fields flow back as they resolve</h3>
+              <p>
+                <code>@laguzjs/server</code> runs every root field on its own and writes a line as
+                soon as one is done. Fast widgets render right away, a slow query only delays
+                itself, and an invalid field fails alone.
+              </p>
+            </div>
+            <pre><code>{"data":{"q0":{"name":"Ada Lovelace", …}}}
 {"data":{"q1":{"leadId":"3"}}}
 <span class="c">… 300 ms later</span>
 {"data":{"q2":{"revenue":48210.5}}}</code></pre>
-        </div>
-      </section>
+          </div>
+        </section>
 
-      <section class="numbers wrap" aria-labelledby="numbers-title">
-        <h2 id="numbers-title">Measured against TanStack Query</h2>
-        <p class="measure" style="color: var(--slate); margin: 0">
-          Same components, same server, headless Chromium, HTTP/2 with brotli on a slow 4G link.
-          Medians of five runs.
-        </p>
-        <table>
-          <thead>
-            <tr>
-              <th scope="col">Scenario</th>
-              <th scope="col">TanStack Query</th>
-              <th scope="col">laguz</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>20-widget page, median widget on screen</td>
-              <td>278 ms, 20 requests</td>
-              <td class="laguz">171 ms, 1 request</td>
-            </tr>
-            <tr>
-              <td>Database round trips for that page</td>
-              <td>28</td>
-              <td class="laguz">6</td>
-            </tr>
-            <tr>
-              <td>Response bytes for that page</td>
-              <td>2.2 KB</td>
-              <td class="laguz">0.9 KB</td>
-            </tr>
-            <tr>
-              <td>Refresh an infinite list with 5 pages</td>
-              <td>832 ms, 5 requests</td>
-              <td class="laguz">171 ms, 1 request</td>
-            </tr>
-            <tr>
-              <td>Three dependent queries</td>
-              <td>498 ms, 3 requests</td>
-              <td class="laguz">186 ms, 1 request</td>
-            </tr>
-          </tbody>
-        </table>
-        <p class="measure" style="color: var(--slate)">
-          On a fast network over HTTP/2 the latencies are close, and what remains is fewer requests
-          and less work for the server.
-          <a href="https://github.com/maxenceleguery/laguz/tree/main/docs/benchmarks"
-            >Methodology and full results</a
-          >.
-        </p>
-      </section>
+        <section aria-labelledby="numbers-title">
+          <h2 id="numbers-title">Measured against TanStack Query</h2>
+          <p class="quiet measure">
+            Same components, same server, headless Chromium, HTTP/2 with brotli on a slow 4G link.
+            Medians of five runs.
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Scenario</th>
+                <th scope="col">TanStack Query</th>
+                <th scope="col">laguz</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>20-widget page, median widget on screen</td>
+                <td>278 ms, 20 requests</td>
+                <td class="laguz">171 ms, 1 request</td>
+              </tr>
+              <tr>
+                <td>Database round trips for that page</td>
+                <td>28</td>
+                <td class="laguz">6</td>
+              </tr>
+              <tr>
+                <td>Response bytes for that page</td>
+                <td>2.2 KB</td>
+                <td class="laguz">0.9 KB</td>
+              </tr>
+              <tr>
+                <td>Refresh an infinite list with 5 pages</td>
+                <td>832 ms, 5 requests</td>
+                <td class="laguz">171 ms, 1 request</td>
+              </tr>
+              <tr>
+                <td>Three dependent queries</td>
+                <td>498 ms, 3 requests</td>
+                <td class="laguz">186 ms, 1 request</td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="quiet measure">
+            On a fast network over HTTP/2 the latencies are close, and what remains is fewer
+            requests and less work for the server.
+            <a href="https://github.com/maxenceleguery/laguz/tree/main/docs/benchmarks"
+              >Methodology and full results</a
+            >.
+          </p>
+        </section>
 
-      <section class="start wrap" aria-labelledby="start-title">
-        <h2 id="start-title">Get started</h2>
-        <div class="pair">
-          <div>
-            <h3>In the browser</h3>
-            <pre><code>import { createPool, httpFetcher } from "@laguzjs/client";
+        <section aria-labelledby="start-title">
+          <h2 id="start-title">Get started</h2>
+          <div class="pair">
+            <div>
+              <h3>In the browser</h3>
+              <pre><code>import { createPool, httpFetcher } from "@laguzjs/client";
 import { useData } from "@laguzjs/client/react";
 
 const pool = createPool(
   httpFetcher("/graphql", { stream: true }),
 );</code></pre>
-          </div>
-          <div>
-            <h3>On the server</h3>
-            <pre><code>import { batchLoader, createHandler } from "@laguzjs/server";
+            </div>
+            <div>
+              <h3>On the server</h3>
+              <pre><code>import { batchLoader, createHandler } from "@laguzjs/server";
 
 export const POST = createHandler({
   schema,
   context: () => ({ users: batchLoader(loadUsers) }),
 });</code></pre>
+            </div>
           </div>
-        </div>
-        <div class="next">
-          <a href="https://github.com/maxenceleguery/laguz/blob/main/docs/guide.md"
-            >Read the guide</a
-          >
-          <a href="https://github.com/maxenceleguery/laguz/blob/main/docs/protocol.md"
-            >The wire protocol</a
-          >
-          <a href="https://github.com/maxenceleguery/laguz">Source on GitHub</a>
-        </div>
-      </section>
-    </main>
+          <div class="next">
+            <a href="https://github.com/maxenceleguery/laguz/blob/main/docs/guide.md"
+              >Read the guide</a
+            >
+            <a href="https://github.com/maxenceleguery/laguz/blob/main/docs/protocol.md"
+              >The wire protocol</a
+            >
+            <a href="https://github.com/maxenceleguery/laguz">Source on GitHub</a>
+          </div>
+        </section>
+      </main>
 
-    <footer class="wrap">
-      MIT licensed. Made by <a href="https://maxenceleguery.net">Maxence Leguery</a>.
-    </footer>
+      <footer>
+        <p>
+          Laguz (ᛚ) is the rune for water in the Elder Futhark: one stave, and everything flows into
+          it.
+        </p>
+        <p>MIT licensed. Made by <a href="https://maxenceleguery.net">Maxence Leguery</a>.</p>
+      </footer>
+    </div>
 
     <script>
       // Median time (ms after navigation) at which each widget had its data, from
@@ -728,6 +889,11 @@ export const POST = createHandler({
           },
         },
       };
+      // Medians and last widget as reported in docs/benchmarks/dashboard.md.
+      const SUMMARY = {
+        h2: { laguz: [171, 455], tanstack: [278, 461] },
+        "http/1.1": { laguz: [171, 455], tanstack: [420, 700] },
+      };
       const WIDGETS = [
         "header",
         "card",
@@ -736,43 +902,47 @@ export const POST = createHandler({
         ...[0, 1, 2, 3, 4, 5, 6, 7].map((i) => `project${i}`),
         ...[0, 1, 2, 3, 4, 5, 6, 7].map((i) => `activity${i}`),
       ];
+      const LIBS = ["laguz", "tanstack"];
       const MAX_MS = 750;
       const SLOWDOWN = 4;
       const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-      const chart = document.getElementById("chart");
+      const tally = document.getElementById("tally");
       const now = document.getElementById("now");
-      const marks = { tanstack: {}, laguz: {} };
+      const cuts = { laguz: {}, tanstack: {} };
       for (const id of WIDGETS) {
         const row = document.createElement("div");
         row.className = "row";
-        row.innerHTML = `<span class="name">${id}</span><span class="track"><i class="mark tanstack"></i><i class="mark laguz"></i></span>`;
-        chart.insertBefore(row, now);
-        marks.tanstack[id] = row.querySelector(".mark.tanstack");
-        marks.laguz[id] = row.querySelector(".mark.laguz");
+        row.innerHTML = `<span class="name">${id}</span><span class="line"><i class="cut laguz"></i><i class="cut tanstack"></i></span>`;
+        tally.insertBefore(row, now);
+        for (const lib of LIBS) cuts[lib][id] = row.querySelector(`.cut.${lib}`);
       }
       const axis = document.createElement("div");
       axis.className = "axis";
       for (let t = 0; t <= MAX_MS; t += 250)
         axis.innerHTML += `<span style="left:${(t / MAX_MS) * 100}%">${t} ms</span>`;
-      chart.after(axis);
+      tally.append(axis);
 
-      // Medians and last widget as reported in docs/benchmarks/dashboard.md.
-      const SUMMARY = {
-        h2: { laguz: [171, 455], tanstack: [278, 461] },
-        "http/1.1": { laguz: [171, 455], tanstack: [420, 700] },
+      // The spine continues the rune's stave from where it ends.
+      const placeSpine = () => {
+        const rune = document.querySelector(".rune").getBoundingClientRect();
+        const page = document.querySelector(".page").getBoundingClientRect();
+        document.querySelector(".spine").style.top = `${rune.bottom - page.top}px`;
       };
+      placeSpine();
+      addEventListener("resize", placeSpine);
+      document.fonts?.ready.then(placeSpine);
+
       let proto = "h2";
       let frame = 0;
 
       function play() {
         cancelAnimationFrame(frame);
         const data = DATA[proto];
-        for (const lib of ["tanstack", "laguz"]) {
+        for (const lib of LIBS) {
           for (const id of WIDGETS) {
-            const m = marks[lib][id];
-            m.classList.remove("on");
-            m.style.left = `${(data[lib][id] / MAX_MS) * 100}%`;
+            cuts[lib][id].classList.remove("on");
+            cuts[lib][id].style.left = `${(data[lib][id] / MAX_MS) * 100}%`;
           }
         }
         const { laguz, tanstack } = SUMMARY[proto];
@@ -783,15 +953,14 @@ export const POST = createHandler({
         const start = performance.now();
         const step = (clock) => {
           const ms = reduced ? MAX_MS : (clock - start) / SLOWDOWN;
-          const counts = { tanstack: 0, laguz: 0 };
-          for (const lib of ["tanstack", "laguz"]) {
+          for (const lib of LIBS) {
+            let count = 0;
             for (const id of WIDGETS) {
-              if (data[lib][id] <= ms) {
-                marks[lib][id].classList.add("on");
-                counts[lib]++;
-              }
+              if (data[lib][id] > ms) continue;
+              cuts[lib][id].classList.add("on");
+              count++;
             }
-            document.getElementById(`count-${lib}`).textContent = counts[lib];
+            document.getElementById(`count-${lib}`).textContent = count;
           }
           now.hidden = reduced || ms >= MAX_MS;
           now.style.left = `calc(var(--label) + ${Math.min(ms / MAX_MS, 1)} * (100% - var(--label)))`;
@@ -818,7 +987,6 @@ export const POST = createHandler({
         setTimeout(() => (copy.textContent = "Copy"), 1500);
       });
 
-      // Start the replay when the chart scrolls into view.
       new IntersectionObserver(
         (entries, observer) => {
           if (!entries[0].isIntersecting) return;
@@ -826,7 +994,7 @@ export const POST = createHandler({
           play();
         },
         { threshold: 0.4 },
-      ).observe(chart);
+      ).observe(tally);
     </script>
   </body>
 </html>

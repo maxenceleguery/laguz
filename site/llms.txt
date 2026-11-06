@@ -1,0 +1,16 @@
+# laguz
+
+> laguz batches the GraphQL queries that React components declare into one request per render, and streams each field back as soon as it resolves. Two packages: @laguzjs/client (cache, HTTP transport, React hooks; works with any GraphQL server) and @laguzjs/server (wraps graphql-js: runs each root field on its own, streams NDJSON, resolves dependent queries in one round trip). MIT licensed.
+
+## Docs
+
+- [README](https://github.com/maxenceleguery/laguz/blob/main/README.md): install, usage, measured results
+- [Guide](https://github.com/maxenceleguery/laguz/blob/main/docs/guide.md): concepts and full API (useData, useSuspenseData, useInfiniteData, ref, mutate, createHandler)
+- [Protocol](https://github.com/maxenceleguery/laguz/blob/main/docs/protocol.md): the wire format between client and server
+- [Design notes](https://github.com/maxenceleguery/laguz/blob/main/docs/design.md): why a React commit is the batch boundary
+- [Benchmarks](https://github.com/maxenceleguery/laguz/tree/main/docs/benchmarks): methodology and results against TanStack Query
+
+## Packages
+
+- [@laguzjs/client](https://www.npmjs.com/package/@laguzjs/client)
+- [@laguzjs/server](https://www.npmjs.com/package/@laguzjs/server)
