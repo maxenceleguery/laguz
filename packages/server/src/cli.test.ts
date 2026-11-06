@@ -88,3 +88,42 @@ test("--watch needs a schema file and an output", async () => {
   expect(await cli.exited).toBe(1);
   expect(await new Response(cli.stderr).text()).toContain("--watch needs a schema file and -o");
 });
+
+test("--header is sent with the introspection query, for endpoints that need a key", async () => {
+  const { buildSchema, getIntrospectionQuery, graphqlSync } = await import("graphql");
+  const remote = buildSchema("type Query { secret: String! }");
+  const server = Bun.serve({
+    port: 0,
+    fetch(req) {
+      if (req.headers.get("apikey") !== "k1") {
+        return new Response("Unauthorized", { status: 401 }); // not GraphQL, not JSON
+      }
+      return Response.json(graphqlSync({ schema: remote, source: getIntrospectionQuery() }));
+    },
+  });
+  try {
+    const run = async (...args: string[]) => {
+      const cli = Bun.spawn(["bun", join(import.meta.dir, "cli.ts"), server.url.href, ...args], {
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      return {
+        code: await cli.exited,
+        out: await new Response(cli.stdout).text(),
+        err: await new Response(cli.stderr).text(),
+      };
+    };
+    const ok = await run("--header", "apikey: k1");
+    expect(ok.code).toBe(0);
+    expect(ok.out).toContain("secret: string;");
+
+    const denied = await run();
+    expect(denied.code).toBe(1);
+    expect(denied.err).toContain("introspection failed (HTTP 401)");
+
+    const malformed = await run("--header", "apikey");
+    expect(malformed.err).toContain('--header expects "Name: value"');
+  } finally {
+    server.stop(true);
+  }
+}, 20_000);

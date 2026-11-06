@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // laguz-types: generate the Schema type for createPool<Schema>().
-//   laguz-types <schema.graphql | introspection.json | https://endpoint> [-o out.ts] [--scalar Name=Type]... [--watch]
+//   laguz-types <schema.graphql | introspection.json | https://endpoint> [-o out.ts]
+//               [--scalar Name=Type]... [--header "Name: value"]... [--watch]
 import { watch } from "node:fs";
 import { dirname } from "node:path";
 import { readFile, writeFile } from "node:fs/promises";
@@ -14,16 +15,17 @@ import {
 import { generateTypes } from "./codegen.ts";
 
 const usage =
-  "usage: laguz-types <schema.graphql | introspection.json | https://endpoint> [-o out.ts] [--scalar Name=Type]... [--watch]";
+  'usage: laguz-types <schema.graphql | introspection.json | https://endpoint> [-o out.ts] [--scalar Name=Type]... [--header "Name: value"]... [--watch]';
 
-async function load(source: string): Promise<GraphQLSchema> {
+async function load(source: string, headers: Record<string, string> = {}): Promise<GraphQLSchema> {
   if (/^https?:\/\//.test(source)) {
     const res = await fetch(source, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...headers },
       body: JSON.stringify({ query: getIntrospectionQuery() }),
     });
-    const json = (await res.json()) as {
+    // An auth failure often answers with something else than GraphQL JSON.
+    const json = (await res.json().catch(() => ({}))) as {
       data?: IntrospectionQuery;
       errors?: { message: string }[];
     };
@@ -44,6 +46,7 @@ async function main(argv: string[]) {
   let out: string | undefined;
   let watching = false;
   const scalars: Record<string, string> = {};
+  const headers: Record<string, string> = {};
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
     if (arg === "-o" || arg === "--out") out = argv[++i];
@@ -51,6 +54,11 @@ async function main(argv: string[]) {
       const [name, type] = (argv[++i] ?? "").split("=");
       if (!name || !type) throw new Error(`--scalar expects Name=Type\n${usage}`);
       scalars[name] = type;
+    } else if (arg === "-H" || arg === "--header") {
+      const header = argv[++i] ?? "";
+      const colon = header.indexOf(":");
+      if (colon < 1) throw new Error(`--header expects "Name: value"\n${usage}`);
+      headers[header.slice(0, colon).trim()] = header.slice(colon + 1).trim();
     } else if (arg === "-w" || arg === "--watch") watching = true;
     else if (arg === "-h" || arg === "--help") {
       console.log(usage);
@@ -59,7 +67,7 @@ async function main(argv: string[]) {
   }
   if (!source) throw new Error(usage);
   if (!watching) {
-    const types = generateTypes(await load(source), { scalars });
+    const types = generateTypes(await load(source, headers), { scalars });
     if (out) await writeFile(out, types);
     else process.stdout.write(types);
     return;
