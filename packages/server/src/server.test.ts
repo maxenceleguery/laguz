@@ -335,3 +335,20 @@ test("localFetcher: each batch gets its own context, and refs forward in one exe
   await pool.load("user", { id: 5 }, ["name"]);
   expect(contexts).toBe(2);
 });
+
+test("cancelling a streamed response closes its results", async () => {
+  let closed = false;
+  async function* results() {
+    try {
+      yield { data: { q0: 1 } };
+      yield { data: { q1: 2 } };
+      yield { data: { q2: 3 } };
+    } finally {
+      closed = true;
+    }
+  }
+  const reader = ndjson(results()).body!.getReader();
+  await reader.read();
+  await reader.cancel();
+  expect(closed).toBe(true);
+});

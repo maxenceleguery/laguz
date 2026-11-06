@@ -1016,3 +1016,110 @@ test("a refresh being retried stays fetching; when it fails, the error shows wit
   });
   expect(pool.read("user", { id: 1 }).fetching).toBeUndefined();
 });
+
+// --- cancellation ---
+
+// Requests stay open until answered, and fail when their signal aborts, as fetch does.
+function inFlight(options: Options = {}) {
+  const calls: { query: string; signal: AbortSignal; answer: (res: Response) => void }[] = [];
+  const pool = createPool(
+    (query, o) =>
+      new Promise<Response>((answer, fail) => {
+        calls.push({ query, signal: o!.signal!, answer });
+        o!.signal!.addEventListener("abort", () => fail(new Error("aborted")));
+      }),
+    { retry: 3, retryDelay: () => 0, staleTime: Infinity, ...options },
+  );
+  return { pool, calls };
+}
+
+test("a batch nobody waits for anymore is aborted, without an error or a retry", async () => {
+  const { pool, calls } = inFlight();
+  const stop1 = pool.watch("user", { id: 1 }, ["name"], () => {});
+  const stop2 = pool.watch("user", { id: 2 }, ["name"], () => {});
+  await settle();
+  stop1();
+  await settle();
+  expect(calls[0]!.signal.aborted).toBe(false); // user 2 still waits
+  stop2();
+  await settle();
+  expect(calls[0]!.signal.aborted).toBe(true);
+  expect(calls).toHaveLength(1);
+  expect(pool.read("user", { id: 1 })).toEqual({ has: {} });
+
+  pool.watch("user", { id: 1 }, ["name"], () => {});
+  await settle();
+  expect(calls.map((c) => c.query)).toEqual([
+    "{ q0: user(id: 1) { name } q1: user(id: 2) { name } }",
+    "{ q0: user(id: 1) { name } }",
+  ]);
+});
+
+test("unsubscribing and subscribing again in the same task keeps the request", async () => {
+  const { pool, calls } = inFlight();
+  const stop = pool.watch("user", { id: 1 }, ["name"], () => {});
+  await settle();
+  stop(); // React's StrictMode, or a remount
+  pool.watch("user", { id: 1 }, ["name"], () => {});
+  await settle();
+  expect(calls).toHaveLength(1);
+  expect(calls[0]!.signal.aborted).toBe(false);
+  calls[0]!.answer({ data: { q0: { name: "Ada" } } });
+  await settle();
+  expect(pool.read("user", { id: 1 }).data).toEqual({ name: "Ada" });
+});
+
+test("a request an invalidation superseded is aborted", async () => {
+  const { pool, calls } = inFlight();
+  pool.watch("user", { id: 1 }, ["name"], () => {});
+  await settle();
+  pool.invalidate("user");
+  await settle();
+  expect(calls).toHaveLength(2);
+  expect(calls[0]!.signal.aborted).toBe(true);
+  expect(calls[1]!.signal.aborted).toBe(false);
+});
+
+test("a stream is aborted when its remaining fields lose their consumers, and no longer read", async () => {
+  let signal!: AbortSignal;
+  let more!: () => void;
+  const pool = createPool(
+    async function* (_, o) {
+      signal = o!.signal!;
+      yield { data: { q0: { name: "Ada" } } };
+      // A fetcher that ignores the signal: the pool stops reading it anyway.
+      await new Promise<void>((resolve) => (more = resolve));
+      yield { data: { q1: { name: "Bob" } } };
+    },
+    { staleTime: Infinity },
+  );
+  pool.watch("user", { id: 1 }, ["name"], () => {});
+  const stop2 = pool.watch("user", { id: 2 }, ["name"], () => {});
+  await settle();
+  expect(pool.read("user", { id: 1 }).data).toEqual({ name: "Ada" });
+  stop2();
+  await settle();
+  expect(signal.aborted).toBe(true);
+  more();
+  await settle();
+  expect(pool.read("user", { id: 2 }).data).toBeUndefined();
+  expect(pool.read("user", { id: 1 }).data).toEqual({ name: "Ada" });
+});
+
+test("an aborted request doesn't use up the retries of the next one", async () => {
+  const { pool, calls } = inFlight({ retry: 3 });
+  const stop = pool.watch("user", { id: 1 }, ["name"], () => {});
+  await settle();
+  stop();
+  await settle();
+  expect(calls[0]!.signal.aborted).toBe(true);
+
+  pool.watch("user", { id: 1 }, ["name"], () => {});
+  await settle();
+  for (let i = 1; calls[i] && i < 10; i++) {
+    calls[i]!.answer({ errors: [{ message: "down" }] });
+    await settle();
+  }
+  expect(calls).toHaveLength(5); // the aborted one, then 1 + 3 retries
+  expect(pool.read("user", { id: 1 }).error?.message).toBe("down");
+});

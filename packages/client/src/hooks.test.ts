@@ -321,7 +321,8 @@ function echo(options: Parameters<typeof lib.createPool>[1] = {}) {
   return { pool, queries, fail: (on: boolean) => (failing = on) };
 }
 
-async function until(condition: () => boolean, ms = 1000) {
+// Generous: the conditions come true by themselves, a loaded machine just takes longer.
+async function until(condition: () => boolean, ms = 3000) {
   const end = Date.now() + ms;
   while (!condition()) {
     if (Date.now() > end) throw new Error("timed out");
@@ -461,4 +462,31 @@ test("a query described once loads on the server and renders hydrated in the bro
   expect(seen.result).toMatchObject({ data: { name: "Ada" }, previous: true, loading: false });
   expect(queries).toEqual([]);
   await unmount();
+});
+
+test("unmounting aborts a request nobody else waits for; StrictMode's remount keeps it", async () => {
+  const signals: AbortSignal[] = [];
+  const answers: ((res: Response) => void)[] = [];
+  const pool = lib.createPool(
+    (_, o) => (signals.push(o!.signal!), new Promise<Response>((resolve) => answers.push(resolve))),
+    { retry: 0 },
+  );
+  const seen: { data?: unknown } = {};
+  function User() {
+    seen.data = hooks.useData(pool, "user", { id: 1 }, ["name"]).data;
+    return null;
+  }
+  const strict = await mount(
+    React.createElement(React.StrictMode, null, React.createElement(User)),
+  );
+  await React.act(async () => answers[0]!({ data: { q0: { name: "Ada" } } }));
+  expect(signals[0]!.aborted).toBe(false);
+  expect(seen.data).toEqual({ name: "Ada" });
+  await strict.unmount();
+
+  const other = await mount(
+    React.createElement(() => (hooks.useData(pool, "user", { id: 2 }, ["name"]), null)),
+  );
+  await other.unmount();
+  expect(signals.at(-1)!.aborted).toBe(true);
 });

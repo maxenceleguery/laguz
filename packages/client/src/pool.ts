@@ -24,8 +24,15 @@ export type Response = {
   errors?: readonly GqlError[];
   extensions?: Record<string, unknown>;
 };
-/** Sends a query. Returns one response, or a stream of partial responses. */
-export type Fetcher = (query: string) => Promise<Response> | AsyncIterable<Response>;
+/**
+ * Sends a query. Returns one response, or a stream of partial responses.
+ * `signal` aborts when nothing waits for the result anymore; passing it to
+ * `fetch` cancels the request.
+ */
+export type Fetcher = (
+  query: string,
+  options?: { signal?: AbortSignal },
+) => Promise<Response> | AsyncIterable<Response>;
 export type Snapshot = {
   data?: any;
   error?: Error;
@@ -345,9 +352,13 @@ function pool(fetcher: Fetcher, options: Options) {
   async function send(reqs: Req[]) {
     const query = `{ ${reqs.map((r, i) => `q${i}: ${r.e.root}${r.args}${printTree(r.tree)}`).join(" ")} }`;
     const pending = new Map(reqs.map((r, i) => [`q${i}`, r]));
+    const request = { controller: new AbortController(), pending };
+    active.add(request);
+    const { signal } = request.controller;
     try {
-      const res = fetcher(query);
+      const res = fetcher(query, { signal });
       for await (const chunk of Symbol.asyncIterator in res ? res : [await res]) {
+        if (signal.aborted) break;
         if (serverRefs === "auto" && Number(chunk.extensions?.laguz) >= 1) forward = true;
 
         const fatal = !chunk.data && chunk.errors?.find((err) => !err.path);
@@ -379,10 +390,41 @@ function pool(fetcher: Fetcher, options: Options) {
           }
         }
       }
-      for (const r of pending.values()) settle(r, undefined, { message: "no data in response" });
+      if (!signal.aborted) {
+        for (const r of pending.values()) settle(r, undefined, { message: "no data in response" });
+      }
     } catch (err) {
-      for (const r of pending.values()) settle(r, undefined, err as Error);
+      if (!signal.aborted) for (const r of pending.values()) settle(r, undefined, err as Error);
+    } finally {
+      active.delete(request);
+      // Nobody waited for what was left: no error, no retry. A consumer that
+      // mounts later fetches it again.
+      if (signal.aborted) {
+        for (const r of pending.values()) {
+          r.e.inflight.delete(r.tree);
+          sync(r.e);
+        }
+      }
     }
+  }
+
+  // Requests in flight, aborted once none of their pending fields is wanted.
+  const active = new Set<{ controller: AbortController; pending: Map<string, Req> }>();
+  let pruning = false;
+  // At the end of the task: a component that unsubscribes and subscribes again
+  // in the same task (React's StrictMode, a fast remount) still wants its data.
+  function prune() {
+    if (pruning) return;
+    pruning = true;
+    queueMicrotask(() => {
+      pruning = false;
+      for (const { controller, pending } of active) {
+        const unwanted = [...pending.values()].every(
+          (r) => !r.e.subs.size || r.epoch !== r.e.epoch,
+        );
+        if (unwanted) controller.abort();
+      }
+    });
   }
 
   function settle(r: Req, data: unknown, err?: GqlError | Error) {
@@ -449,6 +491,7 @@ function pool(fetcher: Fetcher, options: Options) {
       if (e.subs.size) touch(e);
       else sync(e);
     }
+    prune();
   }
 
   function set(root: string, args: object, fn: (data: any) => any) {
@@ -460,6 +503,7 @@ function pool(fetcher: Fetcher, options: Options) {
     update(e, { ...prev, data: fn(prev.data) });
     if (e.subs.size) touch(e);
     else release(e);
+    prune();
     return () => update(e, prev);
   }
 
@@ -487,6 +531,7 @@ function pool(fetcher: Fetcher, options: Options) {
       deps.forEach((off) => off());
       stopPolling?.();
       release(e);
+      prune();
     };
   }
 

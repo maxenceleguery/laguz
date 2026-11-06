@@ -8,10 +8,11 @@ import type { Schema } from "./schema.generated";
 let sent: readonly string[] = [];
 const listeners = new Set<() => void>();
 const http = httpFetcher("/graphql", { stream: true });
-const fetcher: Fetcher = (query) => {
+// A wrapper passes `options` on: they carry the signal that cancels requests.
+const fetcher: Fetcher = (query, options) => {
   sent = [...sent, query];
   listeners.forEach((notify) => notify());
-  return http(query);
+  return http(query, options);
 };
 
 const none: readonly string[] = [];
