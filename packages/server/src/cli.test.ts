@@ -28,10 +28,10 @@ const read = () => {
     return "";
   }
 };
-async function until(condition: () => boolean, ms = 5000) {
+async function until(step: string, condition: () => boolean, ms = 5000) {
   const end = Date.now() + ms;
   while (!condition()) {
-    if (Date.now() > end) throw new Error("timed out");
+    if (Date.now() > end) throw new Error(`timed out: ${step}`);
     await Bun.sleep(20);
   }
 }
@@ -43,9 +43,9 @@ test("--watch regenerates on every save and survives a schema saved halfway", as
     stdout: "ignore",
   });
   try {
-    await until(() => read().includes("a: number;"));
+    await until("first generation", () => read().includes("a: number;"));
     save("type Query { a: Int! b: String }");
-    await until(() => read().includes("b: string | null;"));
+    await until("save adding b", () => read().includes("b: string | null;"));
 
     // Same types, other spacing: the output isn't rewritten, so editors don't recheck.
     const written = statSync(out).mtimeMs;
@@ -61,15 +61,18 @@ test("--watch regenerates on every save and survives a schema saved halfway", as
     await Bun.sleep(300);
 
     save("type Query { c: Boolean! }");
-    await until(() => read().includes("c: boolean;"));
+    await until("save after an invalid one", () => read().includes("c: boolean;"));
     expect(read()).not.toContain("a: number;");
 
     // A change reported under another file name, as macOS can for a rename
-    // over the schema: written here through a hard link.
-    const alias = join(dir, "alias.graphql");
-    linkSync(schema, alias);
-    writeFileSync(alias, "type Query { d: ID! }");
-    await until(() => read().includes("d: string;"));
+    // over the schema: written here through a hard link. NTFS notifies hard
+    // links differently, and the macOS case doesn't arise on Windows.
+    if (process.platform !== "win32") {
+      const alias = join(dir, "alias.graphql");
+      linkSync(schema, alias);
+      writeFileSync(alias, "type Query { d: ID! }");
+      await until("change under another name", () => read().includes("d: string;"));
+    }
   } finally {
     cli.kill();
   }
