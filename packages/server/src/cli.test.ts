@@ -1,5 +1,13 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  linkSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -48,14 +56,25 @@ test("--watch regenerates on every save and survives a schema saved halfway", as
     save("type Query { a: Int! b: "); // invalid: the output stays as it was
     await Bun.sleep(300);
     expect(read()).toContain("b: string | null;");
+    // Another file of the directory changes: the same error isn't printed again.
+    writeFileSync(join(dir, "other.txt"), "x");
+    await Bun.sleep(300);
 
     save("type Query { c: Boolean! }");
     await until(() => read().includes("c: boolean;"));
     expect(read()).not.toContain("a: number;");
+
+    // A change reported under another file name, as macOS can for a rename
+    // over the schema: written here through a hard link.
+    const alias = join(dir, "alias.graphql");
+    linkSync(schema, alias);
+    writeFileSync(alias, "type Query { d: ID! }");
+    await until(() => read().includes("d: string;"));
   } finally {
     cli.kill();
   }
-  expect(await new Response(cli.stderr).text()).toContain("Syntax Error");
+  const errors = (await new Response(cli.stderr).text()).match(/Syntax Error/g) ?? [];
+  expect(errors).toHaveLength(1);
   // Spawns a process and waits on the file system: more than the default 5 s under load.
 }, 20_000);
 
