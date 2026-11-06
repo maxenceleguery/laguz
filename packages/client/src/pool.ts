@@ -89,6 +89,28 @@ export type Options = {
   operationName?: (roots: string[], type: "query" | "mutation") => string;
 };
 
+/** An entry of the cache, as `pool.inspect()` reports it. */
+export type EntryInfo = {
+  root: string;
+  /** Printed arguments, `(id: 1)`. */
+  args: string;
+  status: "idle" | "loading" | "ready" | "fetching" | "error";
+  /** Components and loads reading it. */
+  subscribers: number;
+  /** Time of the last successful response, 0 if none. */
+  at: number;
+  /** Invalidated, or older than `staleTime` when last read. */
+  stale: boolean;
+  error?: string;
+  data: unknown;
+};
+
+/** What `pool.observe()` reports, for each request a pool sends. */
+export type PoolEvent =
+  | { type: "request"; id: number; query: string; at: number }
+  | { type: "result"; id: number; fields: string[]; errors: string[]; at: number }
+  | { type: "end"; id: number; outcome: "done" | "failed" | "aborted"; error?: string; at: number };
+
 export type WatchOptions = {
   /** Treat data as fresh for at least this long, whatever the pool's `staleTime`. */
   minStaleTime?: number;
@@ -362,6 +384,67 @@ function pool(fetcher: Fetcher, options: Options) {
     for (let i = 0; i < reqs.length; i += step) send(reqs.slice(i, i + step));
   }
 
+  const observers = new Set<(event: PoolEvent) => void>();
+  let requests = 0;
+  // Every request goes through here, queries and mutations alike. Without an
+  // observer, the fetcher's result passes through untouched.
+  function transport(query: string, signal?: AbortSignal) {
+    const res = fetcher(query, { signal });
+    if (!observers.size) return res;
+    const id = ++requests;
+    const emit = (event: PoolEvent) => observers.forEach((observer) => observer(event));
+    emit({ type: "request", id, query, at: Date.now() });
+    return (async function* () {
+      let outcome: "done" | "failed" | "aborted" = "done";
+      let error: string | undefined;
+      try {
+        for await (const chunk of Symbol.asyncIterator in res ? res : [await res]) {
+          const fields = Object.keys(chunk.data ?? {});
+          const errors = (chunk.errors ?? []).map((e) => e.message);
+          emit({ type: "result", id, fields, errors, at: Date.now() });
+          yield chunk;
+        }
+      } catch (err) {
+        outcome = "failed";
+        error = (err as Error).message;
+        throw err;
+      } finally {
+        emit({
+          type: "end",
+          id,
+          outcome: signal?.aborted ? "aborted" : outcome,
+          error,
+          at: Date.now(),
+        });
+      }
+    })();
+  }
+
+  const observe = (observer: (event: PoolEvent) => void) => {
+    observers.add(observer);
+    return () => void observers.delete(observer);
+  };
+
+  const inspect = (): EntryInfo[] =>
+    [...entries.values()].map((e) => ({
+      root: e.root,
+      args: e.args,
+      status: e.snap.error
+        ? "error"
+        : !e.at
+          ? e.inflight.size
+            ? "loading"
+            : "idle"
+          : e.snap.fetching
+            ? "fetching"
+            : "ready",
+      subscribers: e.subs.size,
+      at: e.at,
+      stale: e.stale,
+      error: e.snap.error?.message,
+      data: e.snap.data,
+    }));
+
   async function send(reqs: Req[]) {
     const pending = new Map(reqs.map((r, i) => [`q${i}`, r]));
     const request = { controller: new AbortController(), pending };
@@ -372,7 +455,7 @@ function pool(fetcher: Fetcher, options: Options) {
       const fields = reqs.map((r, i) => `q${i}: ${r.e.root}${r.args}${printTree(r.tree)}`);
       const roots = [...new Set(reqs.map((r) => r.e.root))];
       const query = `${operation("query", roots)}{ ${fields.join(" ")} }`;
-      const res = fetcher(query, { signal });
+      const res = transport(query, signal);
       for await (const chunk of Symbol.asyncIterator in res ? res : [await res]) {
         if (signal.aborted) break;
         if (serverRefs === "auto" && Number(chunk.extensions?.laguz) >= 1) forward = true;
@@ -638,7 +721,7 @@ function pool(fetcher: Fetcher, options: Options) {
   // A mutation goes out alone: never merged into a query batch, never retried.
   async function mutation(root: string, args: object, fields: Fields) {
     if (collectRefs(args).length) throw new Error("ref() arguments only work in queries");
-    const res = fetcher(
+    const res = transport(
       `${operation("mutation", [root])}{ ${name(root)}${printArgs(args)}${printTree(toTree(fields))} }`,
     );
     let data: Record<string, unknown> = {};
@@ -701,7 +784,7 @@ function pool(fetcher: Fetcher, options: Options) {
     );
   }
 
-  return { watch, read, load, invalidate, set, mutate, dehydrate, hydrate };
+  return { watch, read, load, invalidate, set, mutate, dehydrate, hydrate, inspect, observe };
 }
 
 export type MutateOptions = {
@@ -779,4 +862,11 @@ export interface Pool<S extends SchemaShape = any> {
    * it is safe to call while rendering.
    */
   hydrate(state: Dehydrated): void;
+  /** The cache, entry by entry: for devtools and debugging. */
+  inspect(): EntryInfo[];
+  /**
+   * Follow the requests the pool sends: each one when it starts, its fields as
+   * they arrive, and how it ended. Returns the function that stops it.
+   */
+  observe(observer: (event: PoolEvent) => void): () => void;
 }

@@ -1,7 +1,8 @@
 # Next.js example
 
-A small issue tracker on the Next.js App Router. The panel at the bottom right
-lists every query the browser sends.
+A small issue tracker on the Next.js App Router. The laguz devtools, open at the
+bottom right, show each request the browser sends, when each of its fields
+arrived, and the cache.
 
 - Every query is defined once in [`lib/queries.ts`](lib/queries.ts), typed
   from the schema. Server components load them and client components read
