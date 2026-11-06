@@ -26,7 +26,13 @@ export type Response = {
 };
 /** Sends a query. Returns one response, or a stream of partial responses. */
 export type Fetcher = (query: string) => Promise<Response> | AsyncIterable<Response>;
-export type Snapshot = { data?: any; error?: Error; has: Tree };
+export type Snapshot = {
+  data?: any;
+  error?: Error;
+  has: Tree;
+  /** A request is in flight for data already shown: a background refresh. */
+  fetching?: true;
+};
 /** A root field name, or a predicate on the root field and its printed arguments. */
 export type Match = string | ((root: string, args: string) => boolean);
 
@@ -184,9 +190,19 @@ function pool(fetcher: Fetcher, options: Options) {
     e.gc = unref(setTimeout(() => e.subs.size || entries.delete(e.key), gcTime));
   }
 
+  // Refreshing data already shown. A first load is `loading`, not `fetching`.
+  const busy = (e: Entry) => e.at > 0 && e.inflight.size > 0;
+
+  // Every snapshot change goes through here, so `fetching` always matches `busy`.
   function update(e: Entry, snap: Snapshot) {
-    e.snap = snap;
+    const { fetching: _, ...rest } = snap;
+    e.snap = busy(e) ? { ...rest, fetching: true } : rest;
     for (const sub of e.subs) sub.cb();
+  }
+
+  // After the requests in flight changed without new data: notify if `fetching` flips.
+  function sync(e: Entry) {
+    if (!!e.snap.fetching !== busy(e)) update(e, e.snap);
   }
 
   /** What `e` still has to fetch, or null. `full` replaces the cached data. */
@@ -285,6 +301,7 @@ function pool(fetcher: Fetcher, options: Options) {
       });
     }
 
+    reqs.forEach((r) => sync(r.e));
     // Placeholders name aliases across the whole batch, so it can't be split.
     const step = reqs.some((r) => r.forwarded) ? Infinity : maxBatch;
     for (let i = 0; i < reqs.length; i += step) send(reqs.slice(i, i + step));
@@ -339,6 +356,7 @@ function pool(fetcher: Fetcher, options: Options) {
     if (r.epoch !== e.epoch) return;
 
     if (err) {
+      // A refresh being retried is still a refresh: `fetching` stays on.
       if (e.fails++ < retry) {
         // One timer for every entry that failed in this window keeps the
         // retries batched. They all wait for the first entry's delay.
@@ -384,14 +402,17 @@ function pool(fetcher: Fetcher, options: Options) {
     );
   }
 
-  function invalidate(match?: Match) {
+  function invalidate(match?: Match, args?: object) {
+    const printed = args && printArgs(args);
     for (const e of entries.values()) {
       const hit = !match || (typeof match === "string" ? e.root === match : match(e.root, e.args));
-      if (!hit) continue;
+      if (!hit || (printed !== undefined && e.args !== printed)) continue;
       e.epoch++;
       e.inflight.clear();
       e.stale = true;
+      // In use, the refetch goes out at once and keeps `fetching` on.
       if (e.subs.size) touch(e);
+      else sync(e);
     }
   }
 
@@ -571,8 +592,12 @@ export interface Pool<S extends SchemaShape = any> {
     args: RootArgs<S, R>,
     fields: F | Tree,
   ): Promise<void>;
-  /** Mark matching entries stale. Those in use refetch together, in one request. */
-  invalidate(match?: Match): void;
+  /**
+   * Mark matching entries stale: all of them, those of a root field, those a
+   * predicate accepts, or with `args` the one entry `root(args)`. Those in use
+   * refetch together, in one request.
+   */
+  invalidate(match?: Match, args?: object): void;
   /**
    * Write to the cache, e.g. an optimistic update. In-flight reads of the entry
    * are dropped so they can't overwrite it. Returns a function that restores

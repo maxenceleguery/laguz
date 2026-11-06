@@ -157,8 +157,8 @@ All hooks come from `@laguzjs/client/react`.
 
 ### `useData(pool, root, args, fields)`
 
-Returns `{ data, error, loading, previous }`. Pass `args: null` to skip the
-query.
+Returns `{ data, error, loading, previous, fetching, refetch }`. Pass
+`args: null` to skip the query.
 
 ```tsx
 const { data: user } = useData(pool, "user", { id }, ["teamId"]);
@@ -169,6 +169,10 @@ With `{ keepPrevious: true }` as a fifth argument, `data` keeps the result of
 the previous arguments while the new ones load or are `null`, and `previous`
 is true. Use it for filters, search and pagination, where emptying the screen
 on every change would flicker. An error replaces the previous data.
+
+`loading` means there is no data to show yet. `fetching` means data is shown
+and a refresh is in flight, retries included: use it for a discreet spinner.
+`refetch()` refreshes this entry; the data stays on screen meanwhile.
 
 ### `useSuspenseData(pool, root, args, fields)`
 
@@ -193,19 +197,20 @@ last page.
 ```tsx
 const fields = [{ edges: [{ node: ["id", "text"] }] }, { pageInfo: ["endCursor", "hasNextPage"] }];
 
-const { pages, loadMore, hasMore, loading, loadingMore, error } = useInfiniteData(
-  pool,
-  (prev, i) =>
-    i === 0 || prev?.pageInfo.hasNextPage
-      ? { root: "feed", args: { first: 20, after: prev?.pageInfo.endCursor }, fields }
-      : null,
-  { prefetch: 1 },
-);
+const { pages, loadMore, hasMore, loading, loadingMore, fetching, refetch, error } =
+  useInfiniteData(
+    pool,
+    (prev, i) =>
+      i === 0 || prev?.pageInfo.hasNextPage
+        ? { root: "feed", args: { first: 20, after: prev?.pageInfo.endCursor }, fields }
+        : null,
+    { prefetch: 1 },
+  );
 ```
 
-Each page is an ordinary cache entry. A refresh refetches every loaded page in
-one request; if a cursor moved as a result, the pages after it are fetched
-right after. `prefetch: n` keeps `n` pages loaded ahead of what's shown, so
+Each page is an ordinary cache entry. A refresh (`refetch()`, or invalidating
+the root field) refetches every loaded page in one request; if a cursor moved
+as a result, the pages after it are fetched right after. `prefetch: n` keeps `n` pages loaded ahead of what's shown, so
 `loadMore()` displays the next page immediately.
 
 When the first page's arguments change (a new filter), it is another list,
@@ -291,13 +296,13 @@ queries. A GraphQL error rejects with the server's message.
 
 The building blocks are available on their own:
 
-| Method                                     | Does                                                                                              |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------- |
-| `pool.invalidate(match?)`                  | Marks matching entries stale (all if omitted). Entries in use refetch in one request.             |
-| `pool.set(root, args, fn)`                 | Writes `fn(data)` to the cache and drops in-flight reads of that entry. Returns an undo function. |
-| `pool.load(root, args, fields)`            | Fetches without staying subscribed (prefetching). Resolves when the data is ready or failed.      |
-| `pool.watch(root, args, fields, callback)` | Subscribes outside React. Returns the unsubscribe function.                                       |
-| `pool.read(root, args)`                    | The current snapshot `{ data, error, has }`.                                                      |
+| Method                                     | Does                                                                                                                           |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| `pool.invalidate(match?, args?)`           | Marks matching entries stale: all, a root field, a predicate, or with `args` one entry. Entries in use refetch in one request. |
+| `pool.set(root, args, fn)`                 | Writes `fn(data)` to the cache and drops in-flight reads of that entry. Returns an undo function.                              |
+| `pool.load(root, args, fields)`            | Fetches without staying subscribed (prefetching). Resolves when the data is ready or failed.                                   |
+| `pool.watch(root, args, fields, callback)` | Subscribes outside React. Returns the unsubscribe function.                                                                    |
+| `pool.read(root, args)`                    | The current snapshot `{ data, error, has }`.                                                                                   |
 
 To refetch when the tab regains focus:
 
