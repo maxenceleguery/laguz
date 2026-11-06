@@ -129,6 +129,10 @@ npx laguz-types schema.graphql -o src/schema.generated.ts --scalar DateTime=stri
 npx laguz-types https://api.example.com/graphql -o src/schema.generated.ts
 ```
 
+With `--watch`, it regenerates whenever the schema file changes, next to your
+dev server. The file is only rewritten when the types change, and a schema
+saved halfway through an edit prints its error without stopping the watch.
+
 Create the pool with the generated `Schema`:
 
 ```ts
