@@ -27,13 +27,20 @@ export type ExecuteOptions = {
   source: string;
   rootValue?: unknown;
   contextValue?: unknown;
+  /** Variables of a document that declares them. Batches from the pool have none. */
+  variableValues?: Record<string, unknown> | null;
+  /** The operation to run in a document with several. */
+  operationName?: string | null;
   /** Your server's `execute`, e.g. from envelop or Yoga, to keep its plugins. */
   execute?: typeof execute;
   /** Your server's `validate`. */
   validate?: typeof validate;
 };
 
-export type HandlerOptions = Omit<ExecuteOptions, "source" | "contextValue"> & {
+export type HandlerOptions = Omit<
+  ExecuteOptions,
+  "source" | "contextValue" | "variableValues" | "operationName"
+> & {
   /** Called once per request. Every field of the request shares the returned context. */
   context?: (req: Request) => unknown;
 };
@@ -147,6 +154,8 @@ async function* executeFields({
   source,
   rootValue,
   contextValue,
+  variableValues,
+  operationName,
   execute: run = execute,
   validate: check = validate,
 }: ExecuteOptions): AsyncGenerator<ExecutionResult> {
@@ -164,7 +173,14 @@ async function* executeFields({
   if (doc.definitions.length !== 1 || op.operation !== "query" || op.variableDefinitions?.length) {
     yield errors.length
       ? { errors }
-      : await run({ schema, document: doc, rootValue, contextValue });
+      : await run({
+          schema,
+          document: doc,
+          rootValue,
+          contextValue,
+          variableValues,
+          operationName,
+        });
     return;
   }
   // When the batch as a whole is valid, fields only need validating again if
@@ -268,16 +284,20 @@ export function createHandler(options: HandlerOptions) {
       );
     }
     const body: unknown = await req.json().catch(() => undefined);
-    const query = (body as { query?: unknown } | undefined)?.query;
-    if (typeof query !== "string") {
-      return Response.json(
-        { errors: [{ message: 'expected a JSON body with a "query" string' }] },
-        { status: 400 },
-      );
+    const { query, variables, operationName } = (body ?? {}) as Record<string, unknown>;
+    const bad = (message: string) => Response.json({ errors: [{ message }] }, { status: 400 });
+    if (typeof query !== "string") return bad('expected a JSON body with a "query" string');
+    if (variables != null && (typeof variables !== "object" || Array.isArray(variables))) {
+      return bad('"variables" must be an object');
+    }
+    if (operationName != null && typeof operationName !== "string") {
+      return bad('"operationName" must be a string');
     }
     const results = splitExecute({
       ...options,
       source: query,
+      variableValues: variables as Record<string, unknown> | null | undefined,
+      operationName,
       contextValue: options.context?.(req),
     });
     if (req.headers.get("accept")?.includes("application/x-ndjson")) return ndjson(results);

@@ -339,6 +339,10 @@ JSON response otherwise. Either way, each root field is validated and executed
 on its own, so an invalid field fails alone, and `ref` placeholders are
 resolved.
 
+Other requests run as one document, the way any GraphQL server runs them:
+mutations, documents with variables or fragments, and `operationName`. Other
+clients (GraphiQL, your mutations) can share the endpoint.
+
 `context` runs once per request. Put your loaders there: every field of the
 batch shares them, so lookups made by different components still end up in a
 single database query. `batchLoader` is a small DataLoader; the `dataloader`
