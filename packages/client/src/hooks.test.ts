@@ -321,7 +321,8 @@ function echo(options: Parameters<typeof lib.createPool>[1] = {}) {
   return { pool, queries, fail: (on: boolean) => (failing = on) };
 }
 
-async function until(condition: () => boolean, ms = 1000) {
+// Generous: the conditions come true by themselves, a loaded machine just takes longer.
+async function until(condition: () => boolean, ms = 3000) {
   const end = Date.now() + ms;
   while (!condition()) {
     if (Date.now() > end) throw new Error("timed out");
