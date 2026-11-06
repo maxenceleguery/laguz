@@ -89,6 +89,9 @@ type Entry = {
 
 type Req = { e: Entry; tree: Tree; full: boolean; epoch: number; args: string; forwarded: boolean };
 
+// The client doesn't depend on Node types; this is all it reads from `process`.
+declare const process: { env: { NODE_ENV?: string } };
+
 const EMPTY: Snapshot = Object.freeze({ has: {} });
 
 /** Whether `snap` holds everything `tree` selects. */
