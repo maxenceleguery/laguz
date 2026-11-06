@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ready, type Pool, type Snapshot } from "./pool.ts";
 import { toTree, view, type Fields } from "./selection.ts";
+import type { RootArgs, RootName, RootResult, RootSelection, SchemaShape } from "./types.ts";
 
 const IDLE: Snapshot = Object.freeze({ has: {} });
 const unsubscribed = () => () => {};
@@ -23,12 +24,23 @@ function useEntry(pool: Pool, root: string, args: object | null, fields: Fields,
 
 /**
  * Read `fields` of `root(args)`. Pass `args: null` to skip the query, for
- * example until the value it depends on has loaded.
+ * example until the value it depends on has loaded. With a pool created from a
+ * schema, the root, the arguments and the selection are type-checked and
+ * `data` has the selected shape.
  */
-export function useData<T = any>(pool: Pool, root: string, args: object | null, fields: Fields) {
-  const { snap, tree, data } = useEntry(pool, root, args, fields);
+export function useData<
+  S extends SchemaShape,
+  R extends RootName<S>,
+  const F extends RootSelection<S, R>,
+>(
+  pool: Pool<S>,
+  root: R,
+  args: RootArgs<S, R> | null,
+  fields: F,
+): { data: RootResult<S, R, F> | undefined; error: Error | undefined; loading: boolean } {
+  const { snap, tree, data } = useEntry(pool, root, args, fields as unknown as Fields);
   return {
-    data: data as T | undefined,
+    data,
     error: snap.error,
     loading: !!args && !snap.error && !ready(snap, tree),
   };
@@ -43,14 +55,13 @@ export function useData<T = any>(pool: Pool, root: string, args: object | null, 
  * siblings of a component that suspends, so components sharing a boundary are
  * fetched in two requests instead of one.
  */
-export function useSuspenseData<T = any>(
-  pool: Pool,
-  root: string,
-  args: object,
-  fields: Fields,
-): T {
+export function useSuspenseData<
+  S extends SchemaShape,
+  R extends RootName<S>,
+  const F extends RootSelection<S, R>,
+>(pool: Pool<S>, root: R, args: RootArgs<S, R>, fields: F): RootResult<S, R, F> {
   // Data that just resolved shouldn't be refetched when the component commits.
-  const { snap, tree, data } = useEntry(pool, root, args, fields, 1000);
+  const { snap, tree, data } = useEntry(pool, root, args, fields as unknown as Fields, 1000);
   if (snap.error) throw snap.error;
   if (!ready(snap, tree)) throw pool.load(root, args, tree);
   return data;

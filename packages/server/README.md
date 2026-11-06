@@ -23,6 +23,13 @@ export const POST = createHandler({
 Bun, Deno, Cloudflare Workers and Next.js route handlers. Pass your server's
 `execute` and `validate` to keep envelop or Yoga plugins.
 
+It also ships `laguz-types`, which generates the TypeScript types that
+`createPool<Schema>()` in `@laguzjs/client` uses to type-check selections:
+
+```sh
+npx laguz-types schema.graphql -o src/schema.generated.ts
+```
+
 Documentation: [guide](https://github.com/maxenceleguery/laguz/blob/main/docs/guide.md#server)
 and [protocol](https://github.com/maxenceleguery/laguz/blob/main/docs/protocol.md).
 

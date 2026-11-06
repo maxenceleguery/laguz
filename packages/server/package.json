@@ -21,10 +21,14 @@
     "url": "git+https://github.com/maxenceleguery/laguz.git",
     "directory": "packages/server"
   },
+  "bin": {
+    "laguz-types": "./dist/cli.js"
+  },
   "files": [
     "dist",
     "src",
-    "!src/**/*.test.ts"
+    "!src/**/*.test.ts",
+    "!src/fixtures"
   ],
   "type": "module",
   "sideEffects": false,
@@ -42,7 +46,7 @@
     "provenance": true
   },
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.build.json"
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && tsc -p tsconfig.cli.json"
   },
   "peerDependencies": {
     "graphql": ">=16"

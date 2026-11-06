@@ -6,8 +6,12 @@
  * - `{ projects: { args: { first: 3 }, fields: ["id"] } }`: a field with arguments
  * - `{ recent: { field: "projects", args: { first: 3 }, fields: ["id"] } }`: the same field under another name
  */
-export type Fields = (string | { [out: string]: Fields | FieldArg })[];
-export type FieldArg = { field?: string; args?: Record<string, unknown>; fields?: Fields };
+export type Fields = readonly (string | { readonly [out: string]: Fields | FieldArg })[];
+export type FieldArg = {
+  readonly field?: string;
+  readonly args?: Record<string, unknown>;
+  readonly fields?: Fields;
+};
 
 /** A merged selection. Keys are `field` or `field(args)`; a leaf is `{}`. */
 export type Tree = { [key: string]: Tree };
@@ -19,7 +23,7 @@ export type Tree = { [key: string]: Tree };
 export type Ref = { $ref: [root: string, args: object, path: string] };
 
 /** An enum value as an argument: printed bare (`DESC`), not as a string. See {@link enumValue}. */
-export type EnumValue = { $enum: string };
+export type EnumValue<V extends string = string> = { readonly $enum: V };
 
 const NAME = /^[_A-Za-z][_0-9A-Za-z]*$/;
 
@@ -41,7 +45,9 @@ export function ref(root: string, args: object, path: string): Ref {
 }
 
 /** `enumValue("DESC")` prints as `DESC`. Plain strings always print quoted. */
-export const enumValue = (value: string): EnumValue => ({ $enum: name(value) });
+export const enumValue = <const V extends string>(value: V): EnumValue<V> => ({
+  $enum: name(value) as V,
+});
 const isEnum = (v: unknown): v is EnumValue => v !== null && typeof v === "object" && "$enum" in v;
 
 export const isRef = (v: unknown): v is Ref => v !== null && typeof v === "object" && "$ref" in v;
@@ -58,6 +64,9 @@ export const pathTree = (path: string): Tree =>
 export const getPath = (data: any, path: string): unknown =>
   path.split(".").reduce((value, key) => value?.[key], data);
 
+// Array.isArray doesn't narrow a readonly array out of a union.
+const isList = (v: Fields | FieldArg): v is Fields => Array.isArray(v);
+
 export function toTree(fields: Fields): Tree {
   const tree: Tree = {};
   for (const f of fields) {
@@ -67,8 +76,8 @@ export function toTree(fields: Fields): Tree {
     }
     for (const [out, v] of Object.entries(f)) {
       name(out);
-      const key = Array.isArray(v) ? out : canonical(v.field ?? out, v.args ?? {});
-      const sub = Array.isArray(v) ? v : (v.fields ?? []);
+      const key = isList(v) ? out : canonical(v.field ?? out, v.args ?? {});
+      const sub = isList(v) ? v : (v.fields ?? []);
       tree[key] = merge(tree[key] ?? {}, toTree(sub));
     }
   }
@@ -133,7 +142,7 @@ export function view(data: any, fields: Fields): any {
       continue;
     }
     for (const [key, v] of Object.entries(f)) {
-      if (Array.isArray(v)) {
+      if (isList(v)) {
         out[key] = view(data[key], v);
       } else {
         const raw = data[fieldKey(v.field ?? key, v.args)];

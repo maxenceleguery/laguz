@@ -4,3 +4,4 @@ export { enumValue, fieldKey, printField, ref, toTree, view } from "./selection.
 export type { EnumValue, FieldArg, Fields, Ref, Tree } from "./selection.ts";
 export { httpFetcher } from "./http.ts";
 export type { HttpOptions } from "./http.ts";
+export type { ArgsOf, Selected, Selection, SchemaShape } from "./types.ts";

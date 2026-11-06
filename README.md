@@ -54,7 +54,10 @@ function TeamLead() {
 ```
 
 `Header` and `TeamLead` render in the same commit, so their queries go out as
-one request. See the [guide](docs/guide.md) for pagination, mutations, Suspense
+one request. With types generated from your schema (`npx laguz-types
+schema.graphql -o schema.generated.ts`, then `createPool<Schema>(...)`), selections
+are checked and `data` has the selected shape. See the [guide](docs/guide.md)
+for typed results, pagination, mutations, Suspense
 and the full API.
 
 ## Numbers
