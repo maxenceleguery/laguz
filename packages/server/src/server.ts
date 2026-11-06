@@ -45,6 +45,25 @@ export type HandlerOptions = Omit<
   context?: (req: Request) => unknown;
 };
 
+export type LocalOptions = Omit<
+  ExecuteOptions,
+  "source" | "contextValue" | "variableValues" | "operationName"
+> & {
+  /** Called once per batch. Every field of the batch shares the returned context. */
+  context?: () => unknown;
+};
+
+/**
+ * A fetcher for `createPool` that runs queries in-process against `schema`,
+ * without HTTP: in tests and stories, or in server components when the schema
+ * lives in the same app. Execution is the server's, so a selection the schema
+ * rejects fails the way it would in production.
+ */
+export function localFetcher(options: LocalOptions) {
+  return (source: string): AsyncIterable<ExecutionResult> =>
+    splitExecute({ ...options, source, contextValue: options.context?.() });
+}
+
 function toLiteral(v: unknown): ValueNode {
   if (v === null || v === undefined) return { kind: Kind.NULL };
   if (Array.isArray(v)) return { kind: Kind.LIST, values: v.map(toLiteral) };

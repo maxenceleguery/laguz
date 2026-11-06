@@ -382,6 +382,7 @@ import type { Schema } from "../../schema.generated";
 
 export default async function UserPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  // localFetcher from @laguzjs/server instead, when the schema lives in this app.
   const pool = createPool<Schema>(httpFetcher(process.env.GRAPHQL_URL!));
   // Loads started together go out as one request.
   await Promise.all([pool.load(user(id)), pool.load(postsBy(id))]);
@@ -466,6 +467,39 @@ the client receives the whole stream at the end. If you compress in the
 application, call `flush()` on the compressor after each write (the benchmark
 server in `bench/server.ts` does). Behind nginx, disable `proxy_buffering` and
 `gzip` for the GraphQL location rather than relying on nginx to flush.
+
+## Testing
+
+`localFetcher` from `@laguzjs/server` runs queries in-process against your
+schema, with resolvers you write for the test:
+
+```tsx
+import { createPool } from "@laguzjs/client";
+import { localFetcher } from "@laguzjs/server";
+import { buildSchema } from "graphql";
+
+const schema = buildSchema(sdl); // the SDL you generate types from
+const pool = createPool<Schema>(
+  localFetcher({
+    schema,
+    rootValue: {
+      user: ({ id }: { id: string }) => ({ id, name: "Ada", email: "ada@example.com" }),
+    },
+  }),
+  { retry: 0 },
+);
+render(<Profile pool={pool} id="1" />);
+```
+
+Execution is the server's: a selection the schema rejects fails in the test as
+it would in production, field by field, and batches, streaming and `ref()`
+behave as they do over HTTP. `context` runs once per batch, for loaders. The
+same fetcher serves stories, and server components when the schema lives in the
+same app.
+
+Request mocking libraries that match GraphQL operations by name, such as MSW's
+`graphql.query`, don't see laguz batches, which are anonymous and aliased
+(`q0: user(...)`). Mock the endpoint itself, or use `localFetcher`.
 
 ## Compared with TanStack Query
 

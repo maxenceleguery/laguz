@@ -1,7 +1,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { createPool, httpFetcher, ref } from "@laguzjs/client";
 import { buildSchema, execute, validate } from "graphql";
-import { batchLoader, createHandler, ndjson, splitExecute } from "./server.ts";
+import { batchLoader, createHandler, localFetcher, ndjson, splitExecute } from "./server.ts";
 
 const schema = buildSchema(`
   enum Role { ADMIN MEMBER }
@@ -302,4 +302,36 @@ test("a forwarded value is typed by the argument it fills, so enums forward as e
     "{ q0: user(id: 1) { role } q1: byRole(role: $_ref__q0__role) { name } }",
   )) as any[];
   expect(out.find((r) => r.data?.q1)?.data.q1).toEqual([{ name: "first admin" }]);
+});
+
+// --- in-process ---
+
+test("localFetcher runs a pool's batches in-process, with the schema's own validation", async () => {
+  // No cast: the fetcher's results are the client's responses.
+  const pool = createPool(localFetcher({ schema, rootValue, context: ctx }));
+  userBatches = [];
+  await Promise.all([
+    pool.load("user", { id: 1 }, ["name"]),
+    pool.load("user", { id: 2 }, ["role"]),
+    pool.load("user", { id: 3 }, ["nope"]),
+  ]);
+  expect(pool.read("user", { id: 1 }).data).toEqual({ name: "u1" });
+  expect(pool.read("user", { id: 2 }).data).toEqual({ role: "ADMIN" });
+  expect(pool.read("user", { id: 3 }).error?.message).toContain('Cannot query field "nope"');
+  // One context per batch: the two lookups were one loader call.
+  expect(userBatches).toEqual([["1", "2"]]);
+});
+
+test("localFetcher: each batch gets its own context, and refs forward in one execution", async () => {
+  let contexts = 0;
+  const local = localFetcher({ schema, rootValue, context: () => (contexts++, ctx()) });
+  let batches = 0;
+  const pool = createPool((query) => (batches++, local(query)), { serverRefs: true });
+  await pool.load("team", { id: ref("user", { id: 4 }, "teamId") }, ["name"]);
+  expect(pool.read("team", { id: ref("user", { id: 4 }, "teamId") }).data).toEqual({
+    name: "team t4",
+  });
+  expect(batches).toBe(1);
+  await pool.load("user", { id: 5 }, ["name"]);
+  expect(contexts).toBe(2);
 });

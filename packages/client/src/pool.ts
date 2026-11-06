@@ -18,10 +18,10 @@ import {
 } from "./selection.ts";
 import type { Query, RootArgs, RootName, RootResult, RootSelection, SchemaShape } from "./types.ts";
 
-export type GqlError = { message: string; path?: (string | number)[] };
+export type GqlError = { message: string; path?: readonly (string | number)[] };
 export type Response = {
   data?: Record<string, unknown> | null;
-  errors?: GqlError[];
+  errors?: readonly GqlError[];
   extensions?: Record<string, unknown>;
 };
 /** Sends a query. Returns one response, or a stream of partial responses. */
