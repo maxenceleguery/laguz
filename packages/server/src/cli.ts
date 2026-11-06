@@ -2,7 +2,7 @@
 // laguz-types: generate the Schema type for createPool<Schema>().
 //   laguz-types <schema.graphql | introspection.json | https://endpoint> [-o out.ts] [--scalar Name=Type]... [--watch]
 import { watch } from "node:fs";
-import { basename, dirname } from "node:path";
+import { dirname } from "node:path";
 import { readFile, writeFile } from "node:fs/promises";
 import {
   buildClientSchema,
@@ -70,7 +70,12 @@ async function main(argv: string[]) {
   const file = source;
   const target = out;
   let last = await readFile(target, "utf8").catch(() => "");
+  let schema: string | undefined;
   const run = async () => {
+    // Mid-save, the file can be briefly missing; the next event brings it back.
+    const text = await readFile(file, "utf8").catch(() => undefined);
+    if (text === undefined || text === schema) return;
+    schema = text;
     try {
       const types = generateTypes(await load(file), { scalars });
       // Unchanged output stays untouched, so editors don't recheck for nothing.
@@ -85,11 +90,12 @@ async function main(argv: string[]) {
   };
   await run();
   // The directory, not the file: editors often save by renaming a new file over
-  // the old one, which ends a watch on the file. They also save in several
-  // writes, so wait for them to settle.
+  // the old one, which ends a watch on the file. Event file names aren't
+  // reliable either (macOS can report the temporary file), so any change in
+  // the directory rereads the schema, and only a new text regenerates. Saves
+  // come in several writes: wait for them to settle.
   let timer: ReturnType<typeof setTimeout> | undefined;
-  watch(dirname(file), (_, name) => {
-    if (name !== basename(file)) return;
+  watch(dirname(file), () => {
     clearTimeout(timer);
     timer = setTimeout(run, 50);
   });
