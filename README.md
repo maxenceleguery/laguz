@@ -54,11 +54,27 @@ function TeamLead() {
 ```
 
 `Header` and `TeamLead` render in the same commit, so their queries go out as
-one request. With types generated from your schema (`npx laguz-types
-schema.graphql -o schema.generated.ts`, then `createPool<Schema>(...)`), selections
-are checked and `data` has the selected shape. See the [guide](docs/guide.md)
-for typed results, pagination, mutations, Suspense
-and the full API.
+one request.
+
+## What else it does
+
+- [Typed queries and mutations](docs/guide.md#typed-results), generated from
+  your schema with `laguz-types` (with `--watch`), and
+  [queries defined once](docs/guide.md#queries-defined-once) for the server and
+  the browser.
+- [Mutations](docs/guide.md#mutations-and-cache-updates) with optimistic
+  updates and invalidation, and refetching on focus, on reconnect and on an
+  interval. Everything due at the same moment goes out in one request.
+- [Server rendering](docs/guide.md#server-rendering): load in a server
+  component and hydrate, or [stream](docs/guide.md#streaming-without-loading-first)
+  what components suspend on, with Next.js.
+- Infinite lists, dependent queries, previous data kept while arguments
+  change, and requests cancelled when nothing waits for them.
+- On the server: a standalone handler, a [GraphQL Yoga plugin](docs/guide.md#with-graphql-yoga),
+  an [adapter for Express and Node](docs/guide.md#with-express-fastify-or-nodes-http-server),
+  and an in-process fetcher for [tests](docs/guide.md#testing).
+- [Devtools](docs/guide.md#devtools): each request with when its fields
+  arrived, and the cache.
 
 ## Numbers
 
@@ -81,10 +97,10 @@ Methodology and the full matrix are in [docs/benchmarks](docs/benchmarks).
 
 ## Packages
 
-| Package                              | Purpose                                                                                                 |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------- |
-| [`@laguzjs/client`](packages/client) | The batching cache, the HTTP transport and React hooks. No dependencies. Works with any GraphQL server. |
-| [`@laguzjs/server`](packages/server) | Runs each root field on its own, streams results, resolves dependent queries. Wraps graphql-js.         |
+| Package                              | Purpose                                                                                                                                       |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`@laguzjs/client`](packages/client) | The batching cache, the HTTP transport, React hooks and devtools. No dependencies. Works with any GraphQL server.                             |
+| [`@laguzjs/server`](packages/server) | Runs each root field on its own, streams results, resolves dependent queries: as a handler, a Yoga plugin or a Node adapter. Generates types. |
 
 The two talk over a small extension of GraphQL over HTTP, described in
 [docs/protocol.md](docs/protocol.md).
