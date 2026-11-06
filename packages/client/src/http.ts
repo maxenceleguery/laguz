@@ -3,23 +3,39 @@ import type { Fetcher, Response as GqlResponse } from "./pool.ts";
 export type HttpOptions = {
   /** Ask for one NDJSON line per root field. Falls back to JSON if the server doesn't stream. */
   stream?: boolean;
-  headers?: Record<string, string>;
+  /** Sent with every request. A function runs before each request, e.g. to read a fresh token. */
+  headers?: HeadersInit | (() => HeadersInit | Promise<HeadersInit>);
+  /** Other `fetch` options, e.g. `{ credentials: "include" }`. */
+  init?: Omit<RequestInit, "method" | "headers" | "body">;
+  /** Replaces the global `fetch`, e.g. in tests. */
+  fetch?: typeof fetch;
 };
 
 /** A fetcher that POSTs `{ query }` to `url`. */
 export function httpFetcher(url: string, options: HttpOptions = {}): Fetcher {
-  return (query) => {
-    const res = fetch(url, {
+  const send = async (query: string) => {
+    const headers = new Headers({
+      "content-type": "application/json",
+      accept: options.stream ? "application/x-ndjson, application/json" : "application/json",
+    });
+    const extra = typeof options.headers === "function" ? await options.headers() : options.headers;
+    new Headers(extra).forEach((value, key) => headers.set(key, value));
+    const res = await (options.fetch ?? fetch)(url, {
+      ...options.init,
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        accept: options.stream ? "application/x-ndjson, application/json" : "application/json",
-        ...options.headers,
-      },
+      headers,
       body: JSON.stringify({ query }),
     });
-    return options.stream ? lines(res) : res.then((r) => r.json());
+    // A GraphQL error comes back as JSON whatever the status. Anything else,
+    // like a proxy's HTML error page, would only fail to parse.
+    const type = res.headers.get("content-type") ?? "";
+    if (!type.includes("json")) throw new Error(`HTTP ${res.status} ${res.statusText}`.trim());
+    return res;
   };
+  return (query) =>
+    options.stream
+      ? lines(send(query))
+      : send(query).then((res) => res.json() as Promise<GqlResponse>);
 }
 
 async function* lines(pending: Promise<Response>): AsyncGenerator<GqlResponse> {
