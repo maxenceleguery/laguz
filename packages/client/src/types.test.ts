@@ -1,8 +1,8 @@
 // Compile-time tests: `bun run typecheck` fails if inference changes. The test
 // below only keeps bun's runner happy; the assertions are the types.
 import { expect, test } from "bun:test";
-import { createPool, enumValue, ref, type EnumValue } from "./index.ts";
-import { useData, useMutation } from "./react.ts";
+import { createPool, enumValue, queries, ref, type EnumValue } from "./index.ts";
+import { useData, useInfiniteData, useMutation, useSuspenseData } from "./react.ts";
 
 // What `laguz-types` generates for a small schema.
 type Role = "ADMIN" | "MEMBER";
@@ -121,6 +121,33 @@ function operations() {
   save.mutate("1");
 }
 
+function described() {
+  const pool = createPool<Schema>(fetcher);
+  const query = queries<Schema>();
+  const user = (id: number) => query("user", { id }, ["name", { manager: ["id"] }]);
+
+  pool.load(user(1));
+  const data = useData(pool, user(1), { keepPrevious: true }).data;
+  expectType<
+    Equal<typeof data, { name: string; manager: { id: string } | null } | null | undefined>
+  >();
+  const skipped = useData(pool, Math.random() ? user(1) : null).data;
+  expectType<Equal<typeof skipped, typeof data>>();
+  const suspended = useSuspenseData(pool, user(1));
+  expectType<Equal<typeof suspended, { name: string; manager: { id: string } | null } | null>>();
+  useInfiniteData(pool, (_, i) => (i === 0 ? query("users", {}, ["id"]) : null));
+
+  // @ts-expect-error unknown field, caught where the query is defined
+  query("user", { id: 1 }, ["nope"]);
+  // @ts-expect-error wrong argument type
+  query("user", { id: true }, ["name"]);
+  const other = queries<{ Query: { other: number } }>()("other", {}, []);
+  // @ts-expect-error a query of another schema
+  useData(pool, other);
+  // @ts-expect-error a query of another schema
+  pool.load(other);
+}
+
 // Without a schema everything stays loose, as before.
 function untyped() {
   const pool = createPool(fetcher);
@@ -129,5 +156,5 @@ function untyped() {
 }
 
 test("type tests compile", () => {
-  expect([typed, operations, untyped].length).toBe(3);
+  expect([typed, operations, described, untyped].length).toBe(4);
 });

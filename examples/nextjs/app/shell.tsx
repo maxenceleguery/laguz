@@ -1,10 +1,10 @@
 "use client";
 import { useData } from "@laguzjs/client/react";
-import { VIEWER } from "../lib/fields";
+import { viewer } from "../lib/queries";
 import { usePool, useSentQueries } from "../lib/pool";
 
 export function Viewer() {
-  const { data } = useData(usePool(), "viewer", {}, VIEWER);
+  const { data } = useData(usePool(), viewer);
   return <span>{data?.name}</span>;
 }
 

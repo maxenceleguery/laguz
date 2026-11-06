@@ -22,7 +22,7 @@ beforeAll(async () => {
 afterAll(() => GlobalRegistrator.unregister());
 
 // Every query waits until the test answers it.
-function server() {
+function server(options: Parameters<typeof lib.createPool>[1] = {}) {
   const queries: string[] = [];
   const answers: ((res: Response) => void)[] = [];
   const pool = lib.createPool(
@@ -30,7 +30,7 @@ function server() {
       queries.push(query);
       return new Promise<Response>((resolve) => answers.push(resolve));
     },
-    { retry: 0 },
+    { retry: 0, ...options },
   );
   const answer = (res: Response) => React.act(async () => answers.shift()!(res));
   return { pool, queries, answer };
@@ -440,3 +440,25 @@ async function polling() {
   await wait(10);
   expect(queries).toEqual([]);
 }
+
+test("a query described once loads on the server and renders hydrated in the browser", async () => {
+  const query = lib.queries();
+  const user = (id: number) => query("user", { id }, ["name"]);
+  const backend = lib.createPool(async () => ({ data: { q0: { name: "Ada" } } }));
+  await backend.load(user(1));
+
+  const { pool, queries } = server({ staleTime: 60_000 });
+  pool.hydrate(JSON.parse(JSON.stringify(backend.dehydrate())));
+  const seen: { result?: Seen } = {};
+  function Profile({ id }: { id: number | null }) {
+    seen.result = hooks.useData(pool, id === null ? null : user(id), { keepPrevious: true });
+    return null;
+  }
+  const { rerender, unmount } = await mount(React.createElement(Profile, { id: 1 }));
+  expect(seen.result).toMatchObject({ data: { name: "Ada" }, previous: false });
+  // Skipped with null; the options still apply.
+  await rerender(React.createElement(Profile, { id: null }));
+  expect(seen.result).toMatchObject({ data: { name: "Ada" }, previous: true, loading: false });
+  expect(queries).toEqual([]);
+  await unmount();
+});

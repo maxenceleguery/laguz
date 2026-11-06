@@ -88,3 +88,15 @@ export type RootSelection<S extends SchemaShape, R, O extends Operation = "Query
   IsAny<S> extends true ? Fields : Selection<Element<Unwrap<Root<S, R, O>>>>;
 export type RootResult<S extends SchemaShape, R, F, O extends Operation = "Query"> =
   IsAny<S> extends true ? any : Selected<Unwrap<Root<S, R, O>>, F>;
+
+/**
+ * A query described once, `root(args) { fields }`, for `pool.load`, `useData`
+ * and `useSuspenseData`. Build it with the factory from `queries<Schema>()`.
+ */
+export type Query<S extends SchemaShape = any, R extends string = string, F = any> = {
+  readonly root: R;
+  readonly args: RootArgs<S, R>;
+  readonly fields: F;
+  /** Carries the schema type only. */
+  readonly __schema?: S;
+};

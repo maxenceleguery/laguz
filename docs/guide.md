@@ -153,6 +153,34 @@ On a union or an interface, only the fields shared by every member can be
 selected, since laguz doesn't send fragments. Without a schema type, pools and
 hooks accept any selection and return `any`.
 
+## Queries defined once
+
+`queries<Schema>()` returns a typed factory of query descriptors, so a query is
+written once, checked and autocompleted where it is defined, and used
+everywhere:
+
+```ts
+// queries.ts
+import { queries } from "@laguzjs/client";
+import type { Schema } from "./schema.generated";
+
+const query = queries<Schema>();
+export const user = (id: string) => query("user", { id }, ["name", "email"]);
+export const postsBy = (id: string) => query("posts", { author: id }, ["id", "title"]);
+```
+
+```tsx
+await pool.load(user(id)); // a server component, or a prefetch
+const { data } = useData(pool, user(id)); // a component; data is typed
+const { data: posts } = useData(pool, open ? postsBy(id) : null); // null skips
+```
+
+`useData`, `useSuspenseData` and `pool.load` take a descriptor in place of
+`root, args, fields`, and a page function of `useInfiniteData` can return one.
+The cache finds an entry by its root field and arguments, so a server load and
+a component built from the same descriptor always meet; that is what makes
+server rendering cover the page.
+
 ## React hooks
 
 All hooks come from `@laguzjs/client/react`.
@@ -341,21 +369,21 @@ export function Hydrate({ state, children }: { state: Dehydrated; children: Reac
 }
 ```
 
-A server component loads the data and passes it down:
+A server component loads the data and passes it down. With the queries defined
+once (see [Queries defined once](#queries-defined-once)), the server loads
+exactly what the components read:
 
 ```tsx
 // app/users/[id]/page.tsx
 import { createPool, httpFetcher } from "@laguzjs/client";
 import { Hydrate } from "../../pool";
+import { postsBy, user } from "../../queries";
 
 export default async function UserPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const pool = createPool(httpFetcher(process.env.GRAPHQL_URL!));
+  const pool = createPool<Schema>(httpFetcher(process.env.GRAPHQL_URL!));
   // Loads started together go out as one request.
-  await Promise.all([
-    pool.load("user", { id }, ["name", "email"]),
-    pool.load("posts", { author: id }, ["id", "title"]),
-  ]);
+  await Promise.all([pool.load(user(id)), pool.load(postsBy(id))]);
   return (
     <Hydrate state={pool.dehydrate()}>
       <Profile id={id} />
