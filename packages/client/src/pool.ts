@@ -471,16 +471,22 @@ function pool(fetcher: Fetcher, options: Options) {
    * ones included, and invalidated entries are left out.
    */
   const dehydrate = (): Dehydrated =>
-    [...entries.values()]
-      .filter((e) => e.at && !e.stale)
-      .map((e) => ({
-        root: e.root,
-        args: e.argv,
-        data: e.snap.data,
-        has: e.snap.has,
-        at: e.at,
-        sent: e.sent,
-      }));
+    // Copied through JSON: frameworks only pass plain objects to the browser,
+    // and graphql-js builds results on null prototypes.
+    JSON.parse(
+      JSON.stringify(
+        [...entries.values()]
+          .filter((e) => e.at && !e.stale)
+          .map((e) => ({
+            root: e.root,
+            args: e.argv,
+            data: e.snap.data,
+            has: e.snap.has,
+            at: e.at,
+            sent: e.sent,
+          })),
+      ),
+    );
 
   /**
    * Add data from `dehydrate`. Entries this pool has newer data for are kept.
