@@ -186,7 +186,20 @@ export async function merged(results: AsyncIterable<ExecutionResult>): Promise<E
  */
 export function createHandler(options: HandlerOptions) {
   return async (req: Request): Promise<Response> => {
-    const { query } = (await req.json()) as { query: string };
+    if (req.method !== "POST") {
+      return Response.json(
+        { errors: [{ message: "use POST with a JSON body" }] },
+        { status: 405, headers: { allow: "POST" } },
+      );
+    }
+    const body: unknown = await req.json().catch(() => undefined);
+    const query = (body as { query?: unknown } | undefined)?.query;
+    if (typeof query !== "string") {
+      return Response.json(
+        { errors: [{ message: 'expected a JSON body with a "query" string' }] },
+        { status: 400 },
+      );
+    }
     const results = splitExecute({
       ...options,
       source: query,

@@ -171,3 +171,19 @@ test("a custom execute (envelop, Yoga) is used for every field", async () => {
   );
   expect(calls).toBe(2);
 });
+
+test("createHandler answers 400 to a malformed body or a missing query", async () => {
+  const send = (body: string) => handler(new Request("http://x", { method: "POST", body }));
+  for (const body of ["{not json", "{}", JSON.stringify({ query: 42 })]) {
+    const res = await send(body);
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { errors: { message: string }[] };
+    expect(json.errors[0]!.message).toContain("query");
+  }
+});
+
+test("createHandler answers 405 to anything but POST", async () => {
+  const res = await handler(new Request("http://x?query={fast}"));
+  expect(res.status).toBe(405);
+  expect(res.headers.get("allow")).toBe("POST");
+});
