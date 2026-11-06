@@ -174,3 +174,96 @@ test("keepPrevious shows the previous list until the new first page arrives", as
   expect(out.list!.error?.message).toBe("nope");
   await unmount();
 });
+
+type MutationSeen = ReturnType<typeof hooks.useMutation<unknown, unknown>>;
+
+test("useMutation: pending then data, optimistic writes built from the variables", async () => {
+  const { pool, queries, answer } = server();
+  const out: { m?: MutationSeen; name?: unknown } = {};
+  function Rename() {
+    out.m = hooks.useMutation(pool, "rename", ["name"], (vars: { id: number; name: string }) => ({
+      optimistic: [["user", { id: vars.id }, (u: object) => ({ ...u, name: vars.name })]],
+    })) as MutationSeen;
+    out.name = hooks.useData(pool, "user", { id: 1 }, ["name"]).data?.name;
+    return null;
+  }
+  const { unmount } = await mount(React.createElement(Rename));
+  await answer({ data: { q0: { name: "Bob" } } });
+
+  let done!: Promise<unknown>;
+  await React.act(async () => void (done = out.m!.mutate({ id: 1, name: "Ada" })));
+  expect(queries.at(-1)).toBe('mutation { rename(id: 1, name: "Ada") { name } }');
+  expect(out.m).toMatchObject({ pending: true, data: undefined });
+  expect(out.name).toBe("Ada");
+
+  await answer({ data: { rename: { name: "Ada" } } });
+  expect(await done).toEqual({ name: "Ada" });
+  expect(out.m).toMatchObject({ pending: false, data: { name: "Ada" }, error: undefined });
+  await unmount();
+});
+
+test("useMutation: an error lands in state, rolls back, and an unawaited call doesn't throw", async () => {
+  const { pool, answer } = server();
+  const out: { m?: MutationSeen; name?: unknown } = {};
+  function Rename() {
+    out.m = hooks.useMutation(pool, "rename", ["name"], {
+      optimistic: [["user", { id: 1 }, (u: object) => ({ ...u, name: "Ada" })]],
+    }) as MutationSeen;
+    out.name = hooks.useData(pool, "user", { id: 1 }, ["name"]).data?.name;
+    return null;
+  }
+  const { unmount } = await mount(React.createElement(Rename));
+  await answer({ data: { q0: { name: "Bob" } } });
+
+  // Not awaited and not caught, like an onClick handler: no unhandled rejection.
+  await React.act(async () => void out.m!.mutate({ id: 1, name: "Ada" }));
+  await answer({ errors: [{ message: "name taken" }] });
+  expect(out.m!.error?.message).toBe("name taken");
+  expect(out.m).toMatchObject({ pending: false, data: undefined });
+  expect(out.name).toBe("Bob");
+  await unmount();
+});
+
+test("useMutation: only the latest call updates the state, and reset forgets a running one", async () => {
+  const { pool } = server();
+  const calls: ((v: string) => void)[] = [];
+  const out: { m?: MutationSeen } = {};
+  function Save() {
+    // Any async function works, e.g. a server action.
+    out.m = hooks.useMutation(
+      pool,
+      () => new Promise<string>((resolve) => calls.push(resolve)),
+    ) as MutationSeen;
+    return null;
+  }
+  const { unmount } = await mount(React.createElement(Save));
+  await React.act(async () => void out.m!.mutate(1));
+  await React.act(async () => void out.m!.mutate(2));
+  await React.act(async () => calls[1]!("second"));
+  await React.act(async () => calls[0]!("first"));
+  expect(out.m).toMatchObject({ data: "second", pending: false });
+
+  await React.act(async () => void out.m!.mutate(3));
+  await React.act(async () => out.m!.reset());
+  await React.act(async () => calls[2]!("third"));
+  expect(out.m).toMatchObject({ data: undefined, pending: false, error: undefined });
+  await unmount();
+});
+
+test("useMutation: a call uses the options of the latest render", async () => {
+  const { pool, queries, answer } = server();
+  const out: { m?: MutationSeen } = {};
+  function Save({ refresh }: { refresh: string }) {
+    hooks.useData(pool, "user", { id: 1 }, ["name"]);
+    out.m = hooks.useMutation(pool, async () => "ok", { invalidate: [refresh] }) as MutationSeen;
+    return null;
+  }
+  const { rerender, unmount } = await mount(React.createElement(Save, { refresh: "nothing" }));
+  await answer({ data: { q0: { name: "Bob" } } });
+  await rerender(React.createElement(Save, { refresh: "user" }));
+  queries.length = 0;
+  await React.act(async () => void (await out.m!.mutate(undefined)));
+  expect(queries).toEqual(["{ q0: user(id: 1) { name } }"]);
+  await answer({ data: { q0: { name: "Bob" } } });
+  await unmount();
+});

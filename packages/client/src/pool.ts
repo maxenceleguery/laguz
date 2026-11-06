@@ -11,11 +11,12 @@ import {
   printValue,
   toTree,
   touchesList,
+  view,
   type Fields,
   type Ref,
   type Tree,
 } from "./selection.ts";
-import type { SchemaShape } from "./types.ts";
+import type { RootArgs, RootName, RootResult, RootSelection, SchemaShape } from "./types.ts";
 
 export type GqlError = { message: string; path?: (string | number)[] };
 export type Response = {
@@ -116,7 +117,9 @@ export function createPool<S extends SchemaShape = any>(
   fetcher: Fetcher,
   options: Options = {},
 ): Pool<S> {
-  return pool(fetcher, options);
+  // The interface is the typed view of the same functions: schema selections
+  // are a stricter form of `Fields`.
+  return pool(fetcher, options) as unknown as Pool<S>;
 }
 
 function pool(fetcher: Fetcher, options: Options) {
@@ -381,7 +384,6 @@ function pool(fetcher: Fetcher, options: Options) {
     );
   }
 
-  /** Mark matching entries stale. Those in use refetch together, in one request. */
   function invalidate(match?: Match) {
     for (const e of entries.values()) {
       const hit = !match || (typeof match === "string" ? e.root === match : match(e.root, e.args));
@@ -393,11 +395,6 @@ function pool(fetcher: Fetcher, options: Options) {
     }
   }
 
-  /**
-   * Write to the cache, e.g. an optimistic update. In-flight reads of the entry
-   * are dropped so they can't overwrite it. Returns a function that restores
-   * the previous value.
-   */
   function set(root: string, args: object, fn: (data: any) => any) {
     const e = entry(root, args);
     const prev = e.snap;
@@ -410,11 +407,6 @@ function pool(fetcher: Fetcher, options: Options) {
     return () => update(e, prev);
   }
 
-  /**
-   * Subscribe to `fields` of `root(args)`. The fetch goes out at the end of the
-   * current task, together with everything else registered in it.
-   * Returns the unsubscribe function.
-   */
   function watch(
     root: string,
     args: object,
@@ -440,14 +432,9 @@ function pool(fetcher: Fetcher, options: Options) {
     };
   }
 
-  /** The current snapshot of `root(args)`. Stable until the entry changes. */
   const read = (root: string, args: object): Snapshot =>
     entries.get(name(root) + printArgs(args))?.snap ?? EMPTY;
 
-  /**
-   * Fetch without staying subscribed (Suspense, prefetching). Joins the current
-   * batch. Resolves once the data is ready or the fetch failed.
-   */
   function load(root: string, args: object, fields: Fields | Tree): Promise<void> {
     const tree = isFields(fields) ? toTree(fields) : fields;
     if (ready(read(root, args), tree)) return Promise.resolve();
@@ -469,17 +456,7 @@ function pool(fetcher: Fetcher, options: Options) {
     return promise;
   }
 
-  /**
-   * Run a mutation. Optimistic writes apply at once and are rolled back if it
-   * throws; the `invalidate` matches refetch afterwards either way.
-   */
-  async function mutate<T>(
-    run: () => Promise<T>,
-    o: {
-      optimistic?: [root: string, args: object, fn: (data: any) => any][];
-      invalidate?: Match[];
-    } = {},
-  ): Promise<T> {
+  async function apply<T>(run: () => Promise<T>, o: MutateOptions = {}): Promise<T> {
     const undo = (o.optimistic ?? []).map(([root, args, fn]) => set(root, args, fn));
     try {
       return await run();
@@ -491,11 +468,24 @@ function pool(fetcher: Fetcher, options: Options) {
     }
   }
 
-  /**
-   * The cached data, to pass to `hydrate` in another pool: from a server
-   * render to the browser, for example. Entries that never loaded, failed
-   * ones included, and invalidated entries are left out.
-   */
+  // A mutation goes out alone: never merged into a query batch, never retried.
+  async function mutation(root: string, args: object, fields: Fields) {
+    if (collectRefs(args).length) throw new Error("ref() arguments only work in queries");
+    const res = fetcher(`mutation { ${name(root)}${printArgs(args)}${printTree(toTree(fields))} }`);
+    let data: Record<string, unknown> = {};
+    const errors: GqlError[] = [];
+    for await (const chunk of Symbol.asyncIterator in res ? res : [await res]) {
+      data = { ...data, ...chunk.data };
+      errors.push(...(chunk.errors ?? []));
+    }
+    if (errors.length) throw new Error(errors.map((e) => e.message).join("\n"), { cause: errors });
+    if (!(root in data)) throw new Error("no data in response");
+    return view(data[root], fields);
+  }
+
+  const mutate = (...a: any[]): Promise<any> =>
+    typeof a[0] === "function" ? apply(a[0], a[1]) : apply(() => mutation(a[0], a[1], a[2]), a[3]);
+
   const dehydrate = (): Dehydrated =>
     // Copied through JSON: frameworks only pass plain objects to the browser,
     // and graphql-js builds results on null prototypes.
@@ -514,11 +504,6 @@ function pool(fetcher: Fetcher, options: Options) {
       ),
     );
 
-  /**
-   * Add data from `dehydrate`. Entries this pool has newer data for are kept.
-   * The data is readable at once and consumers are notified in a microtask,
-   * so it is safe to call while rendering.
-   */
   function hydrate(state: Dehydrated) {
     const changed: Entry[] = [];
     for (const { root, args, data, has, at, sent } of state) {
@@ -550,5 +535,73 @@ function pool(fetcher: Fetcher, options: Options) {
   return { watch, read, load, invalidate, set, mutate, dehydrate, hydrate };
 }
 
-/** A pool. `S` is the schema type it was created with, used by the React hooks. */
-export type Pool<S extends SchemaShape = any> = ReturnType<typeof pool> & { readonly __schema?: S };
+export type MutateOptions = {
+  /** Cache writes `[root, args, fn]`, applied at once and rolled back if the mutation fails. */
+  optimistic?: [root: string, args: object, fn: (data: any) => any][];
+  /** Entries to refetch afterwards, whether the mutation succeeded or not. */
+  invalidate?: Match[];
+};
+
+/**
+ * A pool. `S` is the schema type it was created with (see `laguz-types`), which
+ * types root fields, arguments, selections and results.
+ */
+export interface Pool<S extends SchemaShape = any> {
+  readonly __schema?: S;
+  /**
+   * Subscribe to `fields` of `root(args)`. The fetch goes out at the end of the
+   * current task, together with everything else registered in it. Returns the
+   * unsubscribe function.
+   */
+  watch(
+    root: string,
+    args: object,
+    fields: Fields | Tree,
+    callback: () => void,
+    minStaleTime?: number,
+  ): () => void;
+  /** The current snapshot of `root(args)`. Stable until the entry changes. */
+  read(root: string, args: object): Snapshot;
+  /**
+   * Fetch without staying subscribed (Suspense, prefetching, server rendering).
+   * Joins the current batch. Resolves once the data is ready or the fetch failed.
+   */
+  load<R extends RootName<S>, const F extends RootSelection<S, R>>(
+    root: R,
+    args: RootArgs<S, R>,
+    fields: F | Tree,
+  ): Promise<void>;
+  /** Mark matching entries stale. Those in use refetch together, in one request. */
+  invalidate(match?: Match): void;
+  /**
+   * Write to the cache, e.g. an optimistic update. In-flight reads of the entry
+   * are dropped so they can't overwrite it. Returns a function that restores
+   * the previous value.
+   */
+  set(root: string, args: object, fn: (data: any) => any): () => void;
+  /**
+   * Run a mutation of the schema, `mutation { root(args) { fields } }`, and
+   * resolve to the selected data. It is sent on its own and never retried; a
+   * GraphQL error rejects with the server's message.
+   */
+  mutate<R extends RootName<S, "Mutation">, const F extends RootSelection<S, R, "Mutation">>(
+    root: R,
+    args: RootArgs<S, R, "Mutation">,
+    fields: F,
+    options?: MutateOptions,
+  ): Promise<RootResult<S, R, F, "Mutation">>;
+  /** Run any async function as a mutation, e.g. a server action or a REST call. */
+  mutate<T>(run: () => Promise<T>, options?: MutateOptions): Promise<T>;
+  /**
+   * The cached data, to pass to `hydrate` in another pool: from a server render
+   * to the browser, for example. Entries that never loaded, failed ones
+   * included, and invalidated entries are left out.
+   */
+  dehydrate(): Dehydrated;
+  /**
+   * Add data from `dehydrate`. Entries this pool has newer data for are kept.
+   * The data is readable at once and consumers are notified in a microtask, so
+   * it is safe to call while rendering.
+   */
+  hydrate(state: Dehydrated): void;
+}

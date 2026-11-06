@@ -42,7 +42,12 @@ test("custom scalars default to unknown and can be mapped", () => {
   ).toContain("j: Record<string, unknown>;");
 });
 
-test("a custom query root name still maps to Schema.Query", () => {
+test("custom root names still map to Schema.Query and Schema.Mutation", () => {
   const out = types(`schema { query: Root } type Root { a: Int! }`);
   expect(out).toContain("export interface Schema {\n  Query: Root;\n}");
+  const both = types(
+    `schema { query: Root mutation: Change } type Root { a: Int! } type Change { b(n: Int!): Int! }`,
+  );
+  expect(both).toContain("export interface Schema {\n  Query: Root;\n  Mutation: Change;\n}");
+  expect(both).toContain("b(args: { n: number }): number;");
 });

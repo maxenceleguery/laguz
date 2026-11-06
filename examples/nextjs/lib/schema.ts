@@ -43,6 +43,13 @@ export const rootValue = {
     const more = start + args.first < all.length;
     return { items: items.map(issue), next: more ? items.at(-1)!.id : null };
   },
+  setStatus: async ({ id, status }: { id: string; status: Status }) => {
+    await delay(300);
+    const found = db.issues.find((i) => i.id === id);
+    if (!found) throw new Error(`no issue ${id}`);
+    found.status = status;
+    return issue(found);
+  },
   issue: async ({ id }: { id: string }) => {
     await delay(30);
     const found = db.issues.find((i) => i.id === id);

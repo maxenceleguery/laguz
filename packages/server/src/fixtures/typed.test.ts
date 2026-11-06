@@ -2,7 +2,7 @@
 // generator's output stops type-checking selections the way the client expects.
 import { expect, test } from "bun:test";
 import { createPool, enumValue } from "@laguzjs/client";
-import { useData } from "@laguzjs/client/react";
+import { useData, useMutation } from "@laguzjs/client/react";
 import type { Role, Schema } from "./schema.generated.ts";
 
 type Equal<A, B> =
@@ -32,6 +32,16 @@ function typed() {
   useData(pool, "projects", { order: { direction: "DESC" } }, ["id"]);
   // @ts-expect-error required argument missing
   useData(pool, "search", {}, ["id"]);
+
+  const renamed = pool.mutate("renameUser", { id: 1, name: "Ada" }, ["id", "name"]);
+  expectType<Equal<typeof renamed, Promise<{ id: string; name: string }>>>();
+  const { mutate, data } = useMutation(pool, "setProjectState", []);
+  mutate({ ids: [1], state: enumValue("CLOSED") });
+  expectType<Equal<typeof data, number | undefined>>();
+  // @ts-expect-error enum arguments take enumValue()
+  mutate({ ids: [1], state: "CLOSED" });
+  // @ts-expect-error queries are not mutations
+  pool.mutate("user", { id: 1 }, ["id"]);
 }
 
 test("generated types compile", () => {

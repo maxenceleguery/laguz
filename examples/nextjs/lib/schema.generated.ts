@@ -3,6 +3,7 @@ import type { EnumValue } from "@laguzjs/client";
 
 export interface Schema {
   Query: Query;
+  Mutation: Mutation;
 }
 
 export interface Query {
@@ -28,6 +29,10 @@ export interface IssuePage {
   items: Issue[];
   /** Cursor of the next page, null on the last one. */
   next: string | null;
+}
+
+export interface Mutation {
+  setStatus(args: { id: string | number; status: EnumValue<Status> }): Issue;
 }
 
 export interface Stats {

@@ -54,3 +54,9 @@ type Query {
   "Number of users."
   count: Int!
 }
+
+type Mutation {
+  renameUser(id: ID!, name: String!): User!
+  "Returns how many projects changed."
+  setProjectState(ids: [ID!]!, state: State!): Int!
+}
