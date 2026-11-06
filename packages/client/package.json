@@ -1,6 +1,6 @@
 {
   "name": "@laguzjs/client",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Batch the GraphQL data needs of a React commit into one request, streamed back field by field.",
   "keywords": [
     "batching",
