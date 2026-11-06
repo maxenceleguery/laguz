@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ready, type Pool, type Snapshot } from "./pool.ts";
+import { ready, type Dehydrated, type Pool, type Snapshot } from "./pool.ts";
 import { toTree, view, type Fields } from "./selection.ts";
 import type { RootArgs, RootName, RootResult, RootSelection, SchemaShape } from "./types.ts";
 
@@ -17,7 +17,8 @@ function useEntry(pool: Pool, root: string, args: object | null, fields: Fields,
     (cb: () => void) => (args ? pool.watch(root, args, tree, cb, minStaleTime) : unsubscribed()),
     [pool, key],
   );
-  const snap = useSyncExternalStore(subscribe, () => (args ? pool.read(root, args) : IDLE));
+  const read = () => (args ? pool.read(root, args) : IDLE);
+  const snap = useSyncExternalStore(subscribe, read, read);
   const data = useMemo(() => view(snap.data, fields), [snap.data, key]);
   return { snap, tree, data };
 }
@@ -67,6 +68,15 @@ export function useSuspenseData<
   return data;
 }
 
+/**
+ * Add data rendered on the server (`pool.dehydrate()`) to `pool`, before the
+ * components below this one read it. Call it in every page that receives
+ * server data: entries the pool already has newer data for are kept.
+ */
+export function useHydrate(pool: Pool, state: Dehydrated | null | undefined) {
+  useMemo(() => state && pool.hydrate(state), [pool, state]);
+}
+
 export type Page = { root: string; args: object; fields: Fields };
 
 /**
@@ -109,13 +119,14 @@ export function useInfiniteData<T = any>(
     };
   }, []);
   const lastSnaps = useRef<Snapshot[]>([]);
-  useSyncExternalStore(subscribe, () => {
+  const read = () => {
     const snaps = pages.map((p) => pool.read(p.root, p.args));
     const prev = lastSnaps.current;
     if (snaps.length === prev.length && snaps.every((s, i) => s === prev[i])) return prev;
     lastSnaps.current = snaps;
     return snaps;
-  });
+  };
+  useSyncExternalStore(subscribe, read, read);
 
   // Keep one subscription per page for as long as the page is in the list.
   // Resubscribing every page when the list grows would count as a new mount

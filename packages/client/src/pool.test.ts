@@ -5,6 +5,7 @@ import {
   fieldKey,
   ready,
   ref,
+  toTree,
   view,
   type Fields,
   type Options,
@@ -602,4 +603,190 @@ test("enum names are validated, and an enum never shares a cache entry with a st
   pool.watch("issues", { state: "OPEN" }, ["id"], () => {});
   await tick();
   expect(queries[0]).toBe('{ q0: issues(state: OPEN) { id } q1: issues(state: "OPEN") { id } }');
+});
+
+// --- server rendering ---
+
+test("dehydrated data hydrates another pool, refs included, without refetching", async () => {
+  const server = setup((q) =>
+    q.includes("teamId") ? { data: { q0: { teamId: "t1" } } } : { data: { q0: { name: "Core" } } },
+  );
+  await server.pool.load("team", { id: teamOf }, ["name"]);
+  const state = JSON.parse(JSON.stringify(server.pool.dehydrate()));
+
+  const client = setup(undefined, { staleTime: Infinity });
+  client.pool.hydrate(state);
+  expect(client.pool.read("team", { id: teamOf }).data).toEqual({ name: "Core" });
+  client.pool.watch("team", { id: teamOf }, ["name"], () => {});
+  await settle();
+  expect(client.queries).toEqual([]);
+});
+
+test("hydrate skips failed entries and keeps newer data", async () => {
+  const server = setup(() => ({
+    data: { q0: { name: "old" }, q1: null },
+    errors: [{ message: "nope", path: ["q1"] }],
+  }));
+  await Promise.all([
+    server.pool.load("user", { id: 1 }, ["name"]),
+    server.pool.load("user", { id: 2 }, ["name"]),
+  ]);
+  const state = server.pool.dehydrate();
+  expect(state.map((e) => e.args)).toEqual([{ id: 1 }]);
+
+  const client = setup(() => ({ data: { q0: { name: "new" } } }));
+  await client.pool.load("user", { id: 1 }, ["name"]);
+  client.pool.hydrate(state);
+  expect(client.pool.read("user", { id: 1 }).data).toEqual({ name: "new" });
+});
+
+test("hydrate notifies consumers after the current task, then fetches what the server did not", async () => {
+  let down = true;
+  const { pool, queries } = setup(
+    () => (down ? { errors: [{ message: "down" }] } : { data: { q0: { email: "a@x" } } }),
+    { staleTime: Infinity },
+  );
+  const seen: unknown[] = [];
+  pool.watch("user", { id: 1 }, ["name", "email"], () => seen.push(pool.read("user", { id: 1 })));
+  await settle();
+  seen.length = 0;
+  queries.length = 0;
+  down = false;
+
+  pool.hydrate([
+    { root: "user", args: { id: 1 }, data: { name: "Ada" }, has: toTree(["name"]), at: 1 },
+  ]);
+  expect(seen).toEqual([]);
+  await settle();
+  expect(seen[0]).toEqual({ data: { name: "Ada" }, has: toTree(["name"]) });
+  expect(queries).toEqual(["{ q0: user(id: 1) { email } }"]);
+  expect(pool.read("user", { id: 1 }).data).toEqual({ name: "Ada", email: "a@x" });
+});
+
+test("hydrated entries match the browser's arguments after a JSON round trip", async () => {
+  const args = {
+    order: enumValue("DESC"),
+    since: new Date(0),
+    filter: { tag: "a", skip: undefined },
+  };
+  const server = setup(() => ({ data: { q0: [{ id: 1 }] } }));
+  await server.pool.load("posts", args, ["id"]);
+
+  const client = setup(undefined, { staleTime: Infinity });
+  client.pool.hydrate(JSON.parse(JSON.stringify(server.pool.dehydrate())));
+  client.pool.watch("posts", args, ["id"], () => {});
+  await settle();
+  expect(client.queries).toEqual([]);
+  expect(client.pool.read("posts", args).data).toEqual([{ id: 1 }]);
+});
+
+test("invalidated entries are not dehydrated", async () => {
+  const { pool } = setup(() => ({ data: { q0: { name: "Ada" }, q1: { name: "Bob" } } }));
+  await Promise.all([
+    pool.load("user", { id: 1 }, ["name"]),
+    pool.load("user", { id: 2 }, ["name"]),
+  ]);
+  pool.invalidate((_, args) => args === "(id: 2)");
+  expect(pool.dehydrate().map((e) => e.args)).toEqual([{ id: 1 }]);
+});
+
+test("newer server data keeps the fields only the browser loaded", async () => {
+  const { pool, queries } = setup(() => ({ data: { q0: { name: "Ada", email: "a@x" } } }), {
+    staleTime: Infinity,
+  });
+  pool.watch("user", { id: 1 }, ["name", "email"], () => {});
+  await settle();
+  queries.length = 0;
+
+  const at = Date.now() + 60_000;
+  pool.hydrate([
+    { root: "user", args: { id: 1 }, data: { name: "Ada L." }, has: toTree(["name"]), at },
+  ]);
+  expect(pool.read("user", { id: 1 }).data).toEqual({ name: "Ada L.", email: "a@x" });
+  await settle();
+  expect(queries).toEqual([]);
+});
+
+test("newer server data missing fields inside a list leaves the browser's entry alone", async () => {
+  const posts = [{ id: 1, title: "Hi" }];
+  const { pool, queries } = setup(() => ({ data: { q0: posts } }), { staleTime: Infinity });
+  pool.watch("posts", {}, ["id", "title"], () => {});
+  await settle();
+  queries.length = 0;
+
+  const at = Date.now() + 60_000;
+  pool.hydrate([{ root: "posts", args: {}, data: [{ id: 2 }], has: toTree(["id"]), at }]);
+  expect(pool.read("posts", {}).data).toEqual(posts);
+  await settle();
+  expect(queries).toEqual([]);
+});
+
+test("fresh server data over an entry invalidated while unused is not refetched", async () => {
+  const { pool, queries } = setup(() => ({ data: { q0: { name: "Ada" } } }), {
+    staleTime: Infinity,
+  });
+  pool.watch("user", { id: 1 }, ["name"], () => {})();
+  await settle();
+  pool.invalidate("user");
+  queries.length = 0;
+
+  const at = Date.now() + 60_000;
+  pool.hydrate([
+    { root: "user", args: { id: 1 }, data: { name: "Ada L." }, has: toTree(["name"]), at },
+  ]);
+  pool.watch("user", { id: 1 }, ["name"], () => {});
+  await settle();
+  expect(queries).toEqual([]);
+});
+
+test("hydrated entries nobody reads are garbage collected", async () => {
+  const { pool } = setup(undefined, { gcTime: 0 });
+  pool.hydrate([
+    { root: "user", args: { id: 1 }, data: { name: "Ada" }, has: toTree(["name"]), at: 1 },
+  ]);
+  await settle();
+  expect(pool.read("user", { id: 1 }).data).toBeUndefined();
+});
+
+test("hydrating an unused entry again restarts its gcTime", async () => {
+  const { pool } = setup(undefined, { gcTime: 200 });
+  const state = (at: number) => [
+    { root: "user", args: { id: 1 }, data: { name: "Ada" }, has: toTree(["name"]), at },
+  ];
+  pool.hydrate(state(1));
+  await new Promise((r) => setTimeout(r, 100));
+  pool.hydrate(state(2));
+  await new Promise((r) => setTimeout(r, 150));
+  expect(pool.read("user", { id: 1 }).data).toEqual({ name: "Ada" });
+});
+
+test("on the server a failure is reported at once; in the browser it is retried", async () => {
+  const attempt = async () => {
+    let calls = 0;
+    const pool = createPool(
+      async () => {
+        calls++;
+        return { errors: [{ message: "down" }] };
+      },
+      { retryDelay: () => 0 },
+    );
+    await pool.load("user", { id: 1 }, ["name"]);
+    return calls;
+  };
+  expect(await attempt()).toBe(1);
+  Object.defineProperty(globalThis, "window", { value: globalThis, configurable: true });
+  try {
+    expect(await attempt()).toBe(4);
+  } finally {
+    delete (globalThis as { window?: unknown }).window;
+  }
+});
+
+test("gcTime Infinity keeps unused entries", async () => {
+  const { pool } = setup(() => ({ data: { q0: { name: "Ada" } } }), { gcTime: Infinity });
+  const stop = pool.watch("user", { id: 42 }, ["name"], () => {});
+  await settle();
+  stop();
+  await new Promise((r) => setTimeout(r, 10));
+  expect(pool.read("user", { id: 42 }).data).toEqual({ name: "Ada" });
 });

@@ -164,7 +164,6 @@ export function printTree(tree: Tree): string {
  * Print a JS value as a GraphQL literal. JSON string escaping is valid GraphQL
  * string escaping. Object keys are sorted so equal arguments print the same.
  * Refs print through `onRef`, or as a readable key when it is absent.
- * Enum values are not supported yet: strings always print quoted.
  */
 export function printValue(v: any, onRef?: (r: Ref) => string): string {
   if (isRef(v)) return onRef ? onRef(v) : `@${v.$ref[0]}${printArgs(v.$ref[1])}.${v.$ref[2]}`;

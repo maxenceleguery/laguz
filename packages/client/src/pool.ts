@@ -29,12 +29,25 @@ export type Snapshot = { data?: any; error?: Error; has: Tree };
 /** A root field name, or a predicate on the root field and its printed arguments. */
 export type Match = string | ((root: string, args: string) => boolean);
 
+/** Cached data from `pool.dehydrate()`, JSON-safe. */
+export type Dehydrated = {
+  root: string;
+  args: object;
+  data: unknown;
+  has: Tree;
+  at: number;
+  sent?: string;
+}[];
+
 export type Options = {
   /** Milliseconds before cached data is refetched when a new consumer mounts. Default 0. */
   staleTime?: number;
-  /** Milliseconds an entry without consumers stays cached. Default 5 minutes. */
+  /**
+   * Milliseconds an entry without consumers stays cached. Default 5 minutes,
+   * and `Infinity` on the server, where a pool lives for one request.
+   */
   gcTime?: number;
-  /** Retries before an error is reported. Default 3. */
+  /** Retries before an error is reported. Default 3, and 0 on the server. */
   retry?: number;
   /** Delay before retry `attempt` (0-based). Default exponential, capped at 30 s. */
   retryDelay?: (attempt: number) => number;
@@ -102,10 +115,11 @@ export function createPool<S extends SchemaShape = any>(
 }
 
 function pool(fetcher: Fetcher, options: Options) {
+  const server = typeof window === "undefined";
   const {
     staleTime = 0,
-    gcTime = 5 * 60_000,
-    retry = 3,
+    gcTime = server ? Infinity : 5 * 60_000,
+    retry = server ? 0 : 3,
     retryDelay = (attempt: number) => Math.min(1000 * 2 ** attempt, 30_000),
     maxBatch = Infinity,
     serverRefs = "auto",
@@ -152,7 +166,8 @@ function pool(fetcher: Fetcher, options: Options) {
   }
 
   function release(e: Entry) {
-    if (e.subs.size) return;
+    if (e.subs.size || gcTime === Infinity) return;
+    clearTimeout(e.gc);
     e.gc = unref(setTimeout(() => e.subs.size || entries.delete(e.key), gcTime));
   }
 
@@ -450,7 +465,56 @@ function pool(fetcher: Fetcher, options: Options) {
     }
   }
 
-  return { watch, read, load, invalidate, set, mutate };
+  /**
+   * The cached data, to pass to `hydrate` in another pool: from a server
+   * render to the browser, for example. Entries that never loaded, failed
+   * ones included, and invalidated entries are left out.
+   */
+  const dehydrate = (): Dehydrated =>
+    [...entries.values()]
+      .filter((e) => e.at && !e.stale)
+      .map((e) => ({
+        root: e.root,
+        args: e.argv,
+        data: e.snap.data,
+        has: e.snap.has,
+        at: e.at,
+        sent: e.sent,
+      }));
+
+  /**
+   * Add data from `dehydrate`. Entries this pool has newer data for are kept.
+   * The data is readable at once and consumers are notified in a microtask,
+   * so it is safe to call while rendering.
+   */
+  function hydrate(state: Dehydrated) {
+    const changed: Entry[] = [];
+    for (const { root, args, data, has, at, sent } of state) {
+      const e = entry(root, args);
+      if (e.at >= at) continue;
+      // Keep fields the pool has and the server didn't load. Inside a list
+      // they can't be merged by index, so the older, complete entry stays.
+      const extra = diff(e.snap.has, has);
+      if (extra && touchesList(extra, e.snap.data)) continue;
+      e.snap = extra
+        ? { data: mergeData(e.snap.data, data), has: merge(e.snap.has, has) }
+        : { data, has };
+      e.at = at;
+      e.sent = sent;
+      e.stale = false;
+      changed.push(e);
+      release(e);
+    }
+    queueMicrotask(() =>
+      changed.forEach((e) => {
+        e.subs.forEach((sub) => sub.cb());
+        // Consumers may select more than the server fetched.
+        if (e.subs.size) touch(e);
+      }),
+    );
+  }
+
+  return { watch, read, load, invalidate, set, mutate, dehydrate, hydrate };
 }
 
 /** A pool. `S` is the schema type it was created with, used by the React hooks. */
