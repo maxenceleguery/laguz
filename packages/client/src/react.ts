@@ -20,7 +20,27 @@ function useEntry(pool: Pool, root: string, args: object | null, fields: Fields,
   const read = () => (args ? pool.read(root, args) : IDLE);
   const snap = useSyncExternalStore(subscribe, read, read);
   const data = useMemo(() => view(snap.data, fields), [snap.data, key]);
-  return { snap, tree, data };
+  return { snap, tree, data, key };
+}
+
+/** Options of {@link useData} and {@link useInfiniteData}. */
+export type KeepOptions = {
+  /**
+   * While new arguments load (or are `null`), keep returning the data of the
+   * previous ones, with `previous: true`. An error replaces it.
+   */
+  keepPrevious?: boolean;
+};
+
+// The last result that was ready, for `keepPrevious`. Stored as state during
+// render, the way React suggests for values derived from earlier renders.
+function useLast<T>(enabled: boolean, key: string, ready: boolean, value: T, version: unknown) {
+  // Only set with `enabled`, so the feature costs nothing when it's off.
+  const [last, setLast] = useState<{ key: string; value: T; version: unknown } | null>(null);
+  if (enabled && ready && (last?.key !== key || last.version !== version)) {
+    setLast({ key, value, version });
+  }
+  return last;
 }
 
 /**
@@ -38,12 +58,23 @@ export function useData<
   root: R,
   args: RootArgs<S, R> | null,
   fields: F,
-): { data: RootResult<S, R, F> | undefined; error: Error | undefined; loading: boolean } {
-  const { snap, tree, data } = useEntry(pool, root, args, fields as unknown as Fields);
+  { keepPrevious = false }: KeepOptions = {},
+): {
+  data: RootResult<S, R, F> | undefined;
+  error: Error | undefined;
+  loading: boolean;
+  /** `data` belongs to earlier arguments, see `keepPrevious`. */
+  previous: boolean;
+} {
+  const { snap, tree, data, key } = useEntry(pool, root, args, fields as unknown as Fields);
+  const isReady = !!args && ready(snap, tree);
+  const last = useLast(keepPrevious, key, isReady, data, snap.data);
+  const previous = !isReady && !snap.error && !!last;
   return {
-    data,
+    data: previous ? last!.value : data,
     error: snap.error,
-    loading: !!args && !snap.error && !ready(snap, tree),
+    loading: !!args && !snap.error && !isReady,
+    previous,
   };
 }
 
@@ -90,9 +121,13 @@ export type Page = { root: string; args: object; fields: Fields };
 export function useInfiniteData<T = any>(
   pool: Pool,
   page: (prev: T | undefined, index: number) => Page | null,
-  { prefetch = 0 } = {},
+  { prefetch = 0, keepPrevious = false }: { prefetch?: number } & KeepOptions = {},
 ) {
-  const [shown, setShown] = useState(1);
+  // Other arguments for the first page (a new filter) make another list,
+  // which starts over at one page.
+  const first = JSON.stringify(page(undefined, 0));
+  const [list, setList] = useState({ first, shown: 1 });
+  const shown = list.first === first ? list.shown : 1;
 
   // Page n needs page n-1's data for its cursor, so walk the cache in order.
   const pages: Page[] = [];
@@ -126,7 +161,7 @@ export function useInfiniteData<T = any>(
     lastSnaps.current = snaps;
     return snaps;
   };
-  useSyncExternalStore(subscribe, read, read);
+  const snaps = useSyncExternalStore(subscribe, read, read);
 
   // Keep one subscription per page for as long as the page is in the list.
   // Resubscribing every page when the list grows would count as a new mount
@@ -160,14 +195,19 @@ export function useInfiniteData<T = any>(
     loaded === shown &&
     (views.length > shown || (!end && page(views[loaded - 1], loaded) !== null));
   const error = pages.map((p) => pool.read(p.root, p.args).error).find(Boolean);
+  const visible = views.slice(0, shown);
+  const last = useLast(keepPrevious, first, views.length > 0, visible, snaps);
+  const previous = views.length === 0 && !error && !!last;
   return {
-    pages: views.slice(0, shown),
+    pages: previous ? last!.value : visible,
     hasMore,
     loading: views.length === 0 && !error,
     loadingMore: views.length > 0 && views.length < shown && !error,
     error,
+    /** `pages` belong to earlier arguments, see `keepPrevious`. */
+    previous,
     loadMore: () => {
-      if (hasMore) setShown(loaded + 1);
+      if (hasMore) setList({ first, shown: loaded + 1 });
     },
   };
 }

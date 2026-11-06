@@ -27,6 +27,7 @@
   },
   "devDependencies": {
     "@changesets/cli": "3.0.3",
+    "@happy-dom/global-registrator": "21.0.4",
     "@laguzjs/client": "workspace:*",
     "@laguzjs/server": "workspace:*",
     "@tanstack/react-query": "^5.105.3",

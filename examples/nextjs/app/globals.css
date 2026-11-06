@@ -71,6 +71,9 @@ button[aria-pressed="true"] {
   padding: 0.55rem 0;
   border-bottom: 1px solid var(--line);
 }
+.issues[aria-busy="true"] {
+  opacity: 0.5;
+}
 .issues span {
   color: var(--muted);
   font-size: 0.875rem;
