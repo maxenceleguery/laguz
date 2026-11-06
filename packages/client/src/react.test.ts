@@ -4,7 +4,13 @@ import { expect, test } from "bun:test";
 import { createElement as h, Suspense } from "react";
 import { renderToString } from "react-dom/server";
 import { createPool, queries, toTree, type Dehydrated, type Pool } from "./index.ts";
-import { useData, useHydrate, useInfiniteData, useSuspenseData } from "./react.ts";
+import {
+  createPoolContext,
+  useData,
+  useHydrate,
+  useInfiniteData,
+  useSuspenseData,
+} from "./react.ts";
 
 const never = () => new Promise<never>(() => {});
 const user: Dehydrated = [
@@ -64,4 +70,13 @@ test("useInfiniteData walks hydrated pages by cursor on the server", () => {
     return h("p", null, `${pages.flatMap((p) => p.items).join()} more:${hasMore}`);
   }
   expect(renderToString(h(Feed))).toBe("<p>a,b more:true</p>");
+});
+
+test("createPoolContext renders hydrated data on the server", () => {
+  const ctx = createPoolContext(() => createPool(never));
+  const described = queries()("user", { id: 1 }, ["name"]);
+  function Name() {
+    return h("p", null, ctx.useData(described).data?.name ?? "loading");
+  }
+  expect(renderToString(h(ctx.PoolProvider, { state: user }, h(Name)))).toBe("<p>Ada</p>");
 });

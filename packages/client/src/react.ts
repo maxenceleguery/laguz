@@ -1,4 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import {
+  createContext,
+  createElement,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import {
   ready,
   type Dehydrated,
@@ -351,3 +362,69 @@ export function useMutation(
 }
 
 const IDLE_MUTATION = { data: undefined, error: undefined, pending: false };
+
+export type PoolContext<S extends SchemaShape> = {
+  /**
+   * Creates the pool and provides it below. One pool per mount: per request on
+   * the server, per page load in the browser. `state` hydrates it.
+   */
+  PoolProvider: (props: { children?: ReactNode; state?: Dehydrated | null }) => ReactNode;
+  /** Hydrates the provided pool with server data, for pages under a shared provider. */
+  Hydrate: (props: { state: Dehydrated | null | undefined; children?: ReactNode }) => ReactNode;
+  /** The provided pool. Throws outside a `PoolProvider`. */
+  usePool: () => Pool<S>;
+  /** {@link useData} on the provided pool, for a query from `queries<Schema>()`. */
+  useData: <R extends RootName<S>, F>(
+    query: Query<S, R, F> | null,
+    options?: DataOptions,
+  ) => DataResult<RootResult<S, R, F>>;
+  /** {@link useSuspenseData} on the provided pool. */
+  useSuspenseData: <R extends RootName<S>, F>(query: Query<S, R, F>) => RootResult<S, R, F>;
+  /** {@link useInfiniteData} on the provided pool. */
+  useInfiniteData: <T = any>(
+    page: (prev: T | undefined, index: number) => Page | null,
+    options?: { prefetch?: number } & DataOptions,
+  ) => ReturnType<typeof useInfiniteData<T>>;
+  /** {@link useMutation} on the provided pool. */
+  useMutation: {
+    <R extends RootName<S, "Mutation">, const F extends RootSelection<S, R, "Mutation">>(
+      root: R,
+      fields: F,
+      options?: MutationOptions<RootArgs<S, R, "Mutation">>,
+    ): Mutation<RootArgs<S, R, "Mutation">, RootResult<S, R, F, "Mutation">>;
+    <V, T>(run: (vars: V) => Promise<T>, options?: MutationOptions<V>): Mutation<V, T>;
+  };
+};
+
+/**
+ * A React context for a pool, with hooks bound to it:
+ * `export const { PoolProvider, useData } = createPoolContext(() => createPool<Schema>(fetcher))`.
+ * In Next.js, call it in a `"use client"` module.
+ */
+export function createPoolContext<S extends SchemaShape = any>(
+  create: () => Pool<S>,
+): PoolContext<S> {
+  const Context = createContext<Pool<S> | null>(null);
+  const usePool = () => {
+    const pool = useContext(Context);
+    if (!pool) throw new Error("laguz: usePool() needs a <PoolProvider> above it");
+    return pool;
+  };
+  return {
+    PoolProvider({ children, state }) {
+      const [pool] = useState(create);
+      useHydrate(pool, state);
+      return createElement(Context.Provider, { value: pool }, children);
+    },
+    Hydrate({ state, children }) {
+      useHydrate(usePool(), state);
+      return children;
+    },
+    usePool,
+    useData: (query, options) => useData(usePool(), query, options),
+    useSuspenseData: (query) => useSuspenseData(usePool(), query),
+    useInfiniteData: (page, options) => useInfiniteData(usePool(), page, options),
+    useMutation: ((target: any, fields?: any, options?: any) =>
+      useMutation(usePool(), target, fields, options)) as PoolContext<S>["useMutation"],
+  };
+}

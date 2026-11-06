@@ -2,7 +2,13 @@
 // below only keeps bun's runner happy; the assertions are the types.
 import { expect, test } from "bun:test";
 import { createPool, enumValue, queries, ref, type EnumValue } from "./index.ts";
-import { useData, useInfiniteData, useMutation, useSuspenseData } from "./react.ts";
+import {
+  createPoolContext,
+  useData,
+  useInfiniteData,
+  useMutation,
+  useSuspenseData,
+} from "./react.ts";
 
 // What `laguz-types` generates for a small schema.
 type Role = "ADMIN" | "MEMBER";
@@ -148,6 +154,20 @@ function described() {
   pool.load(other);
 }
 
+function bound() {
+  const ctx = createPoolContext(() => createPool<Schema>(fetcher));
+  const query = queries<Schema>();
+  const data = ctx.useData(query("user", { id: 1 }, ["name"])).data;
+  expectType<Equal<typeof data, { name: string } | null | undefined>>();
+  const rename = ctx.useMutation("rename", ["id"]);
+  expectType<Equal<typeof rename.data, { id: string } | undefined>>();
+  expectType<Equal<ReturnType<typeof ctx.usePool>, ReturnType<typeof createPool<Schema>>>>();
+  // @ts-expect-error a query of another schema
+  ctx.useData(queries<{ Query: { other: number } }>()("other", {}, []));
+  // @ts-expect-error unknown mutation
+  ctx.useMutation("nope", []);
+}
+
 // Without a schema everything stays loose, as before.
 function untyped() {
   const pool = createPool(fetcher);
@@ -156,5 +176,5 @@ function untyped() {
 }
 
 test("type tests compile", () => {
-  expect([typed, operations, described, untyped].length).toBe(4);
+  expect([typed, operations, described, bound, untyped].length).toBe(5);
 });
