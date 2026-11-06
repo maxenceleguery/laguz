@@ -410,6 +410,14 @@ export type PoolContextOptions = {
 type Box = Record<string, Dehydrated[] | { push: (state: Dehydrated) => void }>;
 const box = () => ((globalThis as { __laguz?: Box }).__laguz ??= {});
 
+// What each provider's pool already gave the browser: streamed, or hydrated from props.
+const sentBy = new WeakMap<Pool, Map<string, number>>();
+const entryKey = (e: Dehydrated[number]) => JSON.stringify([e.root, e.args]);
+function markSent(pool: Pool, state: Dehydrated | null | undefined) {
+  const sent = sentBy.get(pool);
+  state?.forEach((e) => sent?.set(entryKey(e), e.at));
+}
+
 // Entries the browser received before its provider existed, queued by the scripts.
 function drain(pool: Pool, id: string) {
   const queued = box()[id];
@@ -440,7 +448,12 @@ export function createPoolContext<S extends SchemaShape = any>(
         if (typeof window !== "undefined") drain(created, id);
         return created;
       });
+      // On the server: every flush of HTML carries the entries settled since the
+      // last one. Those hydrated from props are already in the page.
+      const sent = useRef(new Map<string, number>()).current;
+      sentBy.set(pool, sent);
       useHydrate(pool, state);
+      markSent(pool, state);
       // From now on, streamed entries go straight into the pool, before React
       // hydrates the boundary that follows them in the HTML.
       useLayoutEffect(() => {
@@ -448,11 +461,9 @@ export function createPoolContext<S extends SchemaShape = any>(
         box()[id] = { push: (streamed: Dehydrated) => pool.hydrate(streamed) };
         return () => void delete box()[id];
       }, [pool, id]);
-      // On the server: every flush of HTML carries the entries settled since the last one.
-      const sent = useRef(new Map<string, number>()).current;
       useInserted(() => {
         const fresh = pool.dehydrate().filter((e) => {
-          const key = JSON.stringify([e.root, e.args]);
+          const key = entryKey(e);
           if (sent.get(key) === e.at) return false;
           sent.set(key, e.at);
           return true;
@@ -469,7 +480,9 @@ export function createPoolContext<S extends SchemaShape = any>(
       return createElement(Context.Provider, { value: pool }, children);
     },
     Hydrate({ state, children }) {
-      useHydrate(usePool(), state);
+      const pool = usePool();
+      useHydrate(pool, state);
+      markSent(pool, state);
       return children;
     },
     usePool,

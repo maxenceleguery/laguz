@@ -15,8 +15,10 @@ lists every query the browser sends.
   status filter passed as an enum. Checking an issue runs a typed mutation
   with `useMutation`: the list updates at once, then the list and the counts
   refetch in one request.
-- The issue page ([`app/issues/[id]`](app/issues/[id])) lists the other issues
-  of the assignee with `ref()`: the server resolves both queries in one pass.
+- The issue page ([`app/issues/[id]`](app/issues/[id])) has no prefetch: its
+  components suspend on their queries during the server render, and the data
+  streams to the browser with the HTML (`useServerInsertedHTML`). It lists the
+  other issues of the assignee with `ref()`: both queries go out in one request.
 - [`app/graphql/route.ts`](app/graphql/route.ts) serves the schema with
   `@laguzjs/server`. The data lives in memory and every call waits a little, so
   batching and streaming are visible.
@@ -34,3 +36,6 @@ bun run dev
 
 After editing [`lib/schema.graphql`](lib/schema.graphql), run `bun run types`
 to regenerate `lib/schema.generated.ts`.
+
+Outside `bun run dev`, set `SITE_URL` to the app's own address: when the server
+renders the streamed issue page, its pool calls `/graphql` with an absolute URL.

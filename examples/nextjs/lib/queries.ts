@@ -22,5 +22,5 @@ export const issue = (id: string) =>
 /** Other issues of the same assignee: the assignee comes from the issue itself. */
 export const moreFrom = (id: string) =>
   query("issues", { assignee: ref("issue", { id }, "assigneeId"), first: 6 }, [
-    { items: ["id", "title"] },
+    { items: ["id", "title", { assignee: ["name"] }] },
   ]);

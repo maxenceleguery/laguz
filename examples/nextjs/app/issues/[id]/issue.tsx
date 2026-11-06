@@ -35,14 +35,15 @@ function Issue({ id }: { id: string }) {
   );
 }
 
+// Reads only its own query: a component suspends on the first query it lacks,
+// so reading the issue here too would fetch the two one after the other.
 function More({ id }: { id: string }) {
-  const issue = useSuspenseData(issueQuery(id));
   const more = useSuspenseData(moreFrom(id));
-  if (!issue) return null;
+  const assignee = more.items[0]?.assignee.name.split(" ")[0];
   const others = more.items.filter((item) => item.id !== id);
   return (
     <>
-      <h2>Also assigned to {issue.assignee.name.split(" ")[0]}</h2>
+      <h2>Also assigned to {assignee}</h2>
       {others.length ? (
         <ul>
           {others.map((item) => (

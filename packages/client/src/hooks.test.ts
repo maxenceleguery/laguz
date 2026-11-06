@@ -616,7 +616,7 @@ test("streaming: what useSuspenseData fetched on the server hydrates the browser
   const h = React.createElement;
   type Ctx = import("./react.ts").PoolContext<any>;
   // A name that would end an inline script early if it weren't escaped.
-  const users: Record<string, string> = { "1": "Ada </script>", "2": "Bob", "3": "Cy" };
+  const users: Record<string, string> = { "1": "Ada </script>", "2": "Bob", "3": "Cy", "5": "Ed" };
   const answer = (query: string) => ({
     data: Object.fromEntries(
       [...query.matchAll(/(q\d+): user\(id: (\d+)\)/g)].map(([, alias, id]) => [
@@ -640,12 +640,15 @@ test("streaming: what useSuspenseData fetched on the server hydrates the browser
     late = undefined;
     return null;
   }
-  // User 3 in the shell, user 1 in a boundary.
+  // User 3 in the shell, hydrated from props (Next passes them to both sides);
+  // user 1 in a boundary, loaded during the server render.
+  const props = { state: entry(3, "Cy") };
   const app = (ctx: Ctx) =>
     h(
       ctx.PoolProvider,
-      null,
+      props,
       h(Name, { ctx, id: 3 }),
+      h(ctx.Hydrate, { state: entry(5, "Ed") }, h(Name, { ctx, id: 5 })),
       h(Late),
       h(React.Suspense, { fallback: h("p", null, "loading") }, h(Name, { ctx, id: 1 })),
     );
@@ -669,6 +672,8 @@ test("streaming: what useSuspenseData fetched on the server hydrates the browser
   expect(scripts).toHaveLength(1);
   expect(flush()).toEqual([]); // nothing new since
   expect(scripts[0]).not.toContain("</script>");
+  expect(scripts[0]).not.toContain("Cy"); // already in the page through props
+  expect(scripts[0]).not.toContain("Ed"); // the same, through <Hydrate>
 
   // Browser: the script runs where Next puts it, before hydration.
   const container = document.createElement("div");
@@ -692,7 +697,7 @@ test("streaming: what useSuspenseData fetched on the server hydrates the browser
   });
   expect(errors).toEqual([]);
   expect(requested).toEqual([]);
-  expect(container.textContent).toBe("CyAda </script>");
+  expect(container.textContent).toBe("CyEdAda </script>");
 
   // Queued during hydration (user 2) or pushed after it (user 4): both in the pool.
   live[id]!.push(entry(4, "Di"));
