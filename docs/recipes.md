@@ -9,8 +9,9 @@ each provider's documentation for the current details.
 
 Supabase serves your database as GraphQL with pg_graphql, at
 `https://<project-ref>.supabase.co/graphql/v1`. Every request needs the
-project's API key in `apikey`, and the user's access token in `authorization`
-so that row level security applies:
+project's publishable key (`sb_publishable_...`, which replaces the legacy
+`anon` key) in `apikey`. A signed-in user's access token goes in
+`authorization`, so that row level security applies to them:
 
 ```ts
 import { createPool, httpFetcher } from "@laguzjs/client";
@@ -20,12 +21,19 @@ const pool = createPool<Schema>(
   httpFetcher(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/graphql/v1`, {
     headers: async () => {
       const { data } = await supabase.auth.getSession();
-      const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-      return { apikey: key, authorization: `Bearer ${data.session?.access_token ?? key}` };
+      const token = data.session?.access_token;
+      return {
+        apikey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+        // The publishable key isn't a JWT: it only goes in `apikey`.
+        ...(token && { authorization: `Bearer ${token}` }),
+      };
     },
   }),
 );
 ```
+
+Never use the secret key (`sb_secret_...`, formerly `service_role`) in the
+browser: it bypasses row level security.
 
 Generate the types from the endpoint. Since pg_graphql 1.6.0, introspection is
 off by default; turn it on for the schema first:
@@ -35,7 +43,7 @@ comment on schema public is e'@graphql({"introspection": true})';
 ```
 
 ```sh
-npx laguz-types "$SUPABASE_URL/graphql/v1" --header "apikey: $SUPABASE_ANON_KEY" -o src/schema.generated.ts
+npx laguz-types "$SUPABASE_URL/graphql/v1" --header "apikey: $SUPABASE_PUBLISHABLE_KEY" -o src/schema.generated.ts
 ```
 
 pg_graphql is not a laguz server, so responses aren't streamed and `ref()`
