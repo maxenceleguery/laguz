@@ -88,17 +88,18 @@ async function main(argv: string[]) {
       console.error(`laguz-types: ${(err as Error).message}`);
     }
   };
-  await run();
   // The directory, not the file: editors often save by renaming a new file over
   // the old one, which ends a watch on the file. Event file names aren't
   // reliable either (macOS can report the temporary file), so any change in
   // the directory rereads the schema, and only a new text regenerates. Saves
-  // come in several writes: wait for them to settle.
+  // come in several writes: wait for them to settle. Watching starts before
+  // the first generation, so a save made meanwhile isn't missed.
   let timer: ReturnType<typeof setTimeout> | undefined;
   watch(dirname(file), () => {
     clearTimeout(timer);
     timer = setTimeout(run, 50);
   });
+  await run();
 }
 
 main(process.argv.slice(2)).catch((err: Error) => {
