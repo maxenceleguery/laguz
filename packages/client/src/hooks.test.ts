@@ -267,3 +267,38 @@ test("useMutation: a call uses the options of the latest render", async () => {
   await answer({ data: { q0: { name: "Bob" } } });
   await unmount();
 });
+
+test("refetch keeps the data on screen with fetching, for one entry or every page of a list", async () => {
+  const { pool, queries, answer } = server();
+  const out: { user?: ReturnType<typeof hooks.useData>; list?: Feed } = {};
+  const List = feed(pool, out);
+  function Page() {
+    out.user = hooks.useData(pool, "user", { id: 1 }, ["name"]);
+    hooks.useData(pool, "user", { id: 2 }, ["name"]);
+    return React.createElement(List, { tag: "a" });
+  }
+  const { unmount } = await mount(React.createElement(Page));
+  // Children subscribe first: the list is q0.
+  await answer({
+    data: { q0: { items: ["a1"], next: "c1" }, q1: { name: "Ada" }, q2: { name: "Bob" } },
+  });
+  await React.act(async () => out.list!.loadMore());
+  await answer({ data: { q0: { items: ["a2"], next: null } } });
+
+  queries.length = 0;
+  await React.act(async () => out.user!.refetch());
+  expect(queries).toEqual(["{ q0: user(id: 1) { name } }"]);
+  expect(out.user).toMatchObject({ data: { name: "Ada" }, fetching: true, loading: false });
+  await answer({ data: { q0: { name: "Ada L." } } });
+  expect(out.user).toMatchObject({ data: { name: "Ada L." }, fetching: false });
+
+  queries.length = 0;
+  await React.act(async () => out.list!.refetch());
+  expect(queries).toEqual([
+    '{ q0: feed(after: null, tag: "a") { items next } q1: feed(after: "c1", tag: "a") { items next } }',
+  ]);
+  expect(out.list).toMatchObject({ fetching: true, loading: false });
+  await answer({ data: { q0: { items: ["a1"], next: "c1" }, q1: { items: ["a2"], next: null } } });
+  expect(out.list!.fetching).toBe(false);
+  await unmount();
+});

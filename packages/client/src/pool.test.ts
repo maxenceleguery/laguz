@@ -527,11 +527,15 @@ test("a three-level chain is one request with server refs", async () => {
 
 test("when a dependency's value changes, the dependent refetches with the new value", async () => {
   let team = "t1";
+  const teamName = (id: string) => (id === "t2" ? "Platform" : "Core");
   const { pool, queries } = setup(
     (q) =>
-      q.includes("teamId")
-        ? { data: { q0: { teamId: team } } }
-        : { data: { q0: { name: q.includes("t2") ? "Platform" : "Core" } } },
+      // The first request carries both fields; the server forwards the value.
+      q.includes("$_ref")
+        ? { data: { q0: { teamId: team }, q1: { name: teamName(team) } } }
+        : q.includes("teamId")
+          ? { data: { q0: { teamId: team } } }
+          : { data: { q0: { name: teamName(q.includes("t2") ? "t2" : "t1") } } },
     { staleTime: Infinity, serverRefs: true },
   );
   pool.watch("team", { id: teamOf }, ["name"], () => {});
@@ -927,4 +931,88 @@ test("a mutation from a streaming fetcher, and refs refused in mutation argument
   await expect(
     pool.mutate("rename", { id: ref("user", { id: 1 }, "id") }, ["name"]),
   ).rejects.toThrow("ref() arguments only work in queries");
+});
+
+// --- background refresh ---
+
+test("fetching is on only while shown data refreshes; a first load notifies once", async () => {
+  let next = deferred<Response>();
+  const { pool } = setup(() => next.promise, { staleTime: Infinity });
+  let calls = 0;
+  pool.watch("user", { id: 1 }, ["name"], () => calls++);
+  await settle();
+  next.resolve({ data: { q0: { name: "Ada" } } });
+  await settle();
+  expect(calls).toBe(1);
+  expect(pool.read("user", { id: 1 }).fetching).toBeUndefined();
+
+  next = deferred();
+  pool.invalidate("user", { id: 1 });
+  await settle();
+  expect(pool.read("user", { id: 1 })).toMatchObject({ data: { name: "Ada" }, fetching: true });
+  next.resolve({ data: { q0: { name: "Ada L." } } });
+  await settle();
+  expect(pool.read("user", { id: 1 }).fetching).toBeUndefined();
+  expect(pool.read("user", { id: 1 }).data).toEqual({ name: "Ada L." });
+});
+
+test("invalidate(root, args) refetches that one entry", async () => {
+  const { pool, queries } = setup(() => ({ data: { q0: { name: "x" }, q1: { name: "y" } } }), {
+    staleTime: Infinity,
+  });
+  pool.watch("user", { id: 1 }, ["name"], () => {});
+  pool.watch("user", { id: 2 }, ["name"], () => {});
+  await settle();
+  queries.length = 0;
+  pool.invalidate("user", { id: 2 });
+  await settle();
+  expect(queries).toEqual(["{ q0: user(id: 2) { name } }"]);
+});
+
+test("a dropped refresh turns fetching off: a write during it, or invalidating it unused", async () => {
+  let next = deferred<Response>();
+  const { pool } = setup(() => next.promise, { staleTime: Infinity });
+  const stop = pool.watch("user", { id: 1 }, ["name"], () => {});
+  await settle();
+  next.resolve({ data: { q0: { name: "Ada" } } });
+  await settle();
+
+  next = deferred();
+  pool.invalidate("user");
+  await settle();
+  pool.set("user", { id: 1 }, () => ({ name: "Mine" }));
+  expect(pool.read("user", { id: 1 }).fetching).toBeUndefined();
+  next.resolve({ data: { q0: { name: "Theirs" } } });
+  await settle();
+  expect(pool.read("user", { id: 1 }).data).toEqual({ name: "Mine" });
+
+  next = deferred();
+  pool.invalidate("user");
+  await settle();
+  expect(pool.read("user", { id: 1 }).fetching).toBe(true);
+  stop();
+  pool.invalidate("user");
+  expect(pool.read("user", { id: 1 }).fetching).toBeUndefined();
+});
+
+test("a refresh being retried stays fetching; when it fails, the error shows with the data", async () => {
+  let fail = false;
+  const { pool } = setup(
+    () => (fail ? { errors: [{ message: "down" }] } : { data: { q0: { name: "Ada" } } }),
+    { staleTime: Infinity, retry: 1, retryDelay: () => 20 },
+  );
+  pool.watch("user", { id: 1 }, ["name"], () => {});
+  await settle();
+  fail = true;
+  pool.invalidate("user");
+  await settle();
+  expect(pool.read("user", { id: 1 }).fetching).toBe(true);
+  expect(pool.read("user", { id: 1 }).error).toBeUndefined();
+  await new Promise((r) => setTimeout(r, 40));
+  await settle();
+  expect(pool.read("user", { id: 1 })).toMatchObject({
+    data: { name: "Ada" },
+    error: new Error("down"),
+  });
+  expect(pool.read("user", { id: 1 }).fetching).toBeUndefined();
 });

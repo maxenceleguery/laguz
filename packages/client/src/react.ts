@@ -65,16 +65,23 @@ export function useData<
   loading: boolean;
   /** `data` belongs to earlier arguments, see `keepPrevious`. */
   previous: boolean;
+  /** A background refresh is in flight for the data shown. */
+  fetching: boolean;
+  /** Refetch this entry. The data stays on screen meanwhile, with `fetching`. */
+  refetch: () => void;
 } {
   const { snap, tree, data, key } = useEntry(pool, root, args, fields as unknown as Fields);
   const isReady = !!args && ready(snap, tree);
   const last = useLast(keepPrevious, key, isReady, data, snap.data);
   const previous = !isReady && !snap.error && !!last;
+  const refetch = useCallback(() => void (args && pool.invalidate(root, args)), [pool, key]);
   return {
     data: previous ? last!.value : data,
     error: snap.error,
     loading: !!args && !snap.error && !isReady,
     previous,
+    fetching: !!snap.fetching,
+    refetch,
   };
 }
 
@@ -194,7 +201,7 @@ export function useInfiniteData<T = any>(
   const hasMore =
     loaded === shown &&
     (views.length > shown || (!end && page(views[loaded - 1], loaded) !== null));
-  const error = pages.map((p) => pool.read(p.root, p.args).error).find(Boolean);
+  const error = snaps.map((s) => s.error).find(Boolean);
   const visible = views.slice(0, shown);
   const last = useLast(keepPrevious, first, views.length > 0, visible, snaps);
   const previous = views.length === 0 && !error && !!last;
@@ -206,6 +213,10 @@ export function useInfiniteData<T = any>(
     error,
     /** `pages` belong to earlier arguments, see `keepPrevious`. */
     previous,
+    /** A background refresh is in flight for a page shown. */
+    fetching: snaps.some((s) => s.fetching),
+    /** Refetch every loaded page, in one request. */
+    refetch: () => pages.forEach((p) => pool.invalidate(p.root, p.args)),
     loadMore: () => {
       if (hasMore) setList({ first, shown: loaded + 1 });
     },
