@@ -1,6 +1,6 @@
 {
   "name": "@laguzjs/server",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Server side of laguz: run each root field on its own, stream results, resolve dependent queries in one round trip.",
   "keywords": [
     "batching",
