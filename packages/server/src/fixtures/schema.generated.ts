@@ -3,6 +3,7 @@ import type { EnumValue } from "@laguzjs/client";
 
 export interface Schema {
   Query: Query;
+  Mutation: Mutation;
 }
 
 export interface Query {
@@ -15,6 +16,12 @@ export interface Query {
 }
 
 export type Direction = "ASC" | "DESC";
+
+export interface Mutation {
+  renameUser(args: { id: string | number; name: string }): User;
+  /** Returns how many projects changed. */
+  setProjectState(args: { ids: (string | number)[]; state: EnumValue<State> }): number;
+}
 
 export interface Node {
   id: string;

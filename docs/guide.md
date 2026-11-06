@@ -142,7 +142,8 @@ const { data } = useData(pool, "user", { id: 1 }, [
 ```
 
 Root fields, their arguments, field names and field arguments are checked, and
-editors autocomplete field names inside the selection. Object fields need a
+editors autocomplete field names inside the selection. The same goes for
+`pool.load`, and for mutations in `pool.mutate` and `useMutation`. Object fields need a
 nested selection. Enum arguments take `enumValue()` of one of the enum's
 values. Custom scalars are `unknown` unless mapped with `--scalar`.
 
@@ -244,17 +245,49 @@ fails, the dependent reports the same error.
 
 ## Mutations and cache updates
 
-```ts
-await pool.mutate(() => api.renameUser(1, "Ada"), {
-  optimistic: [["user", { id: 1 }, (user) => ({ ...user, name: "Ada" })]],
-  invalidate: ["user", (root, args) => root === "team"],
-});
+`useMutation` runs a mutation of the schema and tracks its state:
+
+```tsx
+const rename = useMutation(pool, "renameUser", ["id", "name"], (vars) => ({
+  optimistic: [["user", { id: vars.id }, (user) => ({ ...user, name: vars.name })]],
+  invalidate: ["users"],
+}));
+
+return (
+  <>
+    <button disabled={rename.pending} onClick={() => rename.mutate({ id, name })}>
+      Rename
+    </button>
+    {rename.error && <p role="alert">{rename.error.message}</p>}
+  </>
+);
 ```
 
-`mutate(run, options)` applies the optimistic writes at once, runs the
-mutation, rolls the writes back if it throws, and invalidates the matching
-entries either way. The invalidated entries that are on screen refetch
-together, in one request.
+It returns `{ mutate, data, error, pending, reset }`. With a typed pool, the
+mutation name, its variables and the selection are checked and `data` has the
+selected shape. `mutate(vars)` returns a promise of the result that rejects on
+failure, but the error also lands in `error`, so an event handler can call it
+without catching. When calls overlap, the latest one sets the state. Instead
+of a mutation name, `useMutation(pool, run, options)` takes any async function:
+a server action, a REST call.
+
+The options can be an object, or a function of the variables. Optimistic writes
+apply at once and roll back if the mutation fails; the `invalidate` matches
+refetch afterwards either way, together, in one request.
+
+Outside React, `pool.mutate` does the same and resolves to the result:
+
+```ts
+const user = await pool.mutate("renameUser", { id: 1, name: "Ada" }, ["name"], {
+  invalidate: ["users", (root, args) => root === "team"],
+});
+await pool.mutate(() => api.archive(1), { invalidate: ["projects"] });
+```
+
+A mutation is sent on its own as `mutation { field(args) { fields } }`, right
+away rather than at the end of the task, and is never retried. Its arguments
+are inline literals like a query's, so any fetcher works; `ref()` is only for
+queries. A GraphQL error rejects with the server's message.
 
 The building blocks are available on their own:
 

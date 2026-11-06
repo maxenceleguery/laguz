@@ -1,11 +1,11 @@
 "use client";
-import { useData, useInfiniteData } from "@laguzjs/client/react";
+import { enumValue } from "@laguzjs/client";
+import { useData, useInfiniteData, useMutation } from "@laguzjs/client/react";
 import Link from "next/link";
 import { useState } from "react";
 import type { Status } from "../lib/db";
 import { boardPage, PAGE, STATS } from "../lib/fields";
 import { usePool } from "../lib/pool";
-import { setStatus } from "./actions";
 
 type Row = { id: string; title: string; status: Status; assignee: { name: string } };
 type Page = { items: Row[]; next: string | null };
@@ -51,34 +51,36 @@ function Issues({ status }: { status: Status | null }) {
     { keepPrevious: true },
   );
 
-  function toggle(row: Row, page: number) {
-    const next: Status = row.status === "DONE" ? "OPEN" : "DONE";
+  // The checkbox flips at once; the list and the counts refetch in one request after.
+  const setStatus = useMutation(pool, "setStatus", ["id", "status"], ({ id, status }) => {
+    const page = pages.findIndex((p) => p.items.some((item) => item.id === id));
     const mark = (p: Page) => ({
       ...p,
-      items: p.items.map((item) => (item.id === row.id ? { ...item, status: next } : item)),
+      items: p.items.map((item) => (item.id === id ? { ...item, status: status.$enum } : item)),
     });
-    pool
-      .mutate(() => setStatus(row.id, next), {
-        optimistic: [["issues", pageArgs(pages[page - 1]), mark]],
-        invalidate: ["issues", "issue", "stats"],
-      })
-      .catch(console.error);
-  }
+    return {
+      optimistic: [["issues", pageArgs(pages[page - 1]), mark]],
+      invalidate: ["issues", "issue", "stats"],
+    };
+  });
+  const toggle = (row: Row) =>
+    setStatus.mutate({ id: row.id, status: enumValue(row.status === "DONE" ? "OPEN" : "DONE") });
 
   return (
     <>
       {error && <p role="alert">Couldn't load issues: {error.message}</p>}
+      {setStatus.error && <p role="alert">Couldn't update the issue: {setStatus.error.message}</p>}
       {loading && !previous ? (
         <p>Loading issues…</p>
       ) : (
         <ul className="issues" aria-busy={previous}>
-          {pages.map((page, i) =>
+          {pages.map((page) =>
             page.items.map((row) => (
               <li key={row.id}>
                 <input
                   type="checkbox"
                   checked={row.status === "DONE"}
-                  onChange={() => toggle(row, i)}
+                  onChange={() => toggle(row)}
                   aria-label={`Done: ${row.title}`}
                 />
                 <Link href={`/issues/${row.id}`}>{row.title}</Link>

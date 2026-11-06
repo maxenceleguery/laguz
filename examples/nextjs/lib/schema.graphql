@@ -8,6 +8,10 @@ type Query {
   issue(id: ID!): Issue
 }
 
+type Mutation {
+  setStatus(id: ID!, status: Status!): Issue!
+}
+
 enum Status {
   OPEN
   DONE

@@ -4,6 +4,7 @@ export type {
   Fetcher,
   GqlError,
   Match,
+  MutateOptions,
   Options,
   Pool,
   Response,

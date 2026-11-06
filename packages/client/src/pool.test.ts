@@ -868,3 +868,63 @@ test("gcTime Infinity keeps unused entries", async () => {
   await new Promise((r) => setTimeout(r, 10));
   expect(pool.read("user", { id: 42 }).data).toEqual({ name: "Ada" });
 });
+
+// --- schema mutations ---
+
+test("a mutation goes out on its own, not in the query batch, and resolves to its selection", async () => {
+  const avatar = fieldKey("avatar", { size: 2 });
+  const { pool, queries } = setup((q) =>
+    q.startsWith("mutation")
+      ? { data: { rename: { name: "Ada", [avatar]: "a.png" } } }
+      : { data: { q0: { name: "Bob" } } },
+  );
+  pool.watch("user", { id: 1 }, ["name"], () => {});
+  const result = pool.mutate("rename", { id: 1, name: "Ada" }, [
+    "name",
+    { avatar: { args: { size: 2 } } },
+  ]);
+  await settle();
+  // Sent right away, without waiting for the end of the task like queries.
+  expect(queries).toEqual([
+    `mutation { rename(id: 1, name: "Ada") { name ${avatar}: avatar(size: 2) } }`,
+    "{ q0: user(id: 1) { name } }",
+  ]);
+  expect(await result).toEqual({ name: "Ada", avatar: "a.png" });
+});
+
+test("a failed mutation rejects with the server's message, is not retried, and rolls back", async () => {
+  const { pool, queries } = setup(
+    (q) =>
+      q.startsWith("mutation")
+        ? { data: null, errors: [{ message: "name taken", path: ["rename"] }] }
+        : { data: { q0: { name: "Bob" } } },
+    { retry: 3, retryDelay: () => 0, staleTime: Infinity },
+  );
+  pool.watch("user", { id: 1 }, ["name"], () => {});
+  await settle();
+  queries.length = 0;
+  const result = pool.mutate("rename", { id: 1, name: "Ada" }, ["name"], {
+    optimistic: [["user", { id: 1 }, (u) => ({ ...u, name: "Ada" })]],
+    invalidate: ["user"],
+  });
+  expect(pool.read("user", { id: 1 }).data).toEqual({ name: "Ada" });
+  await expect(result).rejects.toThrow("name taken");
+  await settle();
+  expect(queries.filter((q) => q.startsWith("mutation"))).toHaveLength(1);
+  expect(queries).toContain("{ q0: user(id: 1) { name } }"); // invalidated either way
+  expect(pool.read("user", { id: 1 }).data).toEqual({ name: "Bob" });
+});
+
+test("a mutation from a streaming fetcher, and refs refused in mutation arguments", async () => {
+  const pool = createPool(async function* () {
+    yield { data: { rename: { name: "Ada" } }, extensions: { laguz: 1 } };
+  });
+  expect(await pool.mutate("rename", { id: 1, name: "Ada" }, ["name"])).toEqual({ name: "Ada" });
+  const empty = createPool(async () => ({ data: null }));
+  await expect(empty.mutate("rename", { id: 1, name: "Ada" }, ["name"])).rejects.toThrow(
+    "no data in response",
+  );
+  await expect(
+    pool.mutate("rename", { id: ref("user", { id: 1 }, "id") }, ["name"]),
+  ).rejects.toThrow("ref() arguments only work in queries");
+});

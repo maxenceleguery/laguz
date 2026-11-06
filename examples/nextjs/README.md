@@ -9,8 +9,9 @@ lists every query the browser sends.
   first visit sends one request from the browser: the issue counts, which the
   server leaves out because they are slow.
 - The board ([`app/board.tsx`](app/board.tsx)) is an infinite list with a
-  status filter passed as an enum. Checking an issue updates the list at once,
-  calls a server action, then refetches the list and the counts in one request.
+  status filter passed as an enum. Checking an issue runs a typed mutation
+  with `useMutation`: the list updates at once, then the list and the counts
+  refetch in one request.
 - The issue page ([`app/issues/[id]`](app/issues/[id])) lists the other issues
   of the assignee with `ref()`: the server resolves both queries in one pass.
 - [`app/graphql/route.ts`](app/graphql/route.ts) serves the schema with

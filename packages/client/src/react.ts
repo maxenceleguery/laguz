@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ready, type Dehydrated, type Pool, type Snapshot } from "./pool.ts";
+import { ready, type Dehydrated, type MutateOptions, type Pool, type Snapshot } from "./pool.ts";
 import { toTree, view, type Fields } from "./selection.ts";
 import type { RootArgs, RootName, RootResult, RootSelection, SchemaShape } from "./types.ts";
 
@@ -211,3 +211,80 @@ export function useInfiniteData<T = any>(
     },
   };
 }
+
+export type Mutation<V, T> = {
+  /**
+   * Run the mutation. The promise rejects on failure, but the error is also
+   * in `error`, so it can be called without handling it.
+   */
+  mutate: (vars: V) => Promise<T>;
+  /** The result of the latest call. */
+  data: T | undefined;
+  error: Error | undefined;
+  pending: boolean;
+  /** Back to the initial state. A call still running no longer updates it. */
+  reset: () => void;
+};
+
+type MutationOptions<V> = MutateOptions | ((vars: V) => MutateOptions);
+
+/**
+ * A mutation and its state. Pass a mutation of the schema and the fields to
+ * select, or any async function (a server action, a REST call). `options`
+ * (optimistic writes, invalidations) can depend on the variables.
+ */
+export function useMutation<
+  S extends SchemaShape,
+  R extends RootName<S, "Mutation">,
+  const F extends RootSelection<S, R, "Mutation">,
+>(
+  pool: Pool<S>,
+  root: R,
+  fields: F,
+  options?: MutationOptions<RootArgs<S, R, "Mutation">>,
+): Mutation<RootArgs<S, R, "Mutation">, RootResult<S, R, F, "Mutation">>;
+export function useMutation<V, T>(
+  pool: Pool,
+  run: (vars: V) => Promise<T>,
+  options?: MutationOptions<V>,
+): Mutation<V, T>;
+export function useMutation(
+  pool: Pool,
+  target: string | ((vars: any) => Promise<unknown>),
+  fieldsOrOptions?: Fields | MutationOptions<any>,
+  maybeOptions?: MutationOptions<any>,
+): Mutation<any, unknown> {
+  const [state, setState] =
+    useState<Omit<Mutation<any, unknown>, "mutate" | "reset">>(IDLE_MUTATION);
+  // Only the latest call updates the state.
+  const latest = useRef(0);
+  // `mutate` keeps its identity; the arguments of the last render are read when it runs.
+  const current = useRef({ pool, target, fieldsOrOptions, maybeOptions });
+  useEffect(() => {
+    current.current = { pool, target, fieldsOrOptions, maybeOptions };
+  });
+
+  const mutate = useCallback((vars: any) => {
+    const { pool, target, fieldsOrOptions, maybeOptions } = current.current;
+    const id = ++latest.current;
+    setState((s) => ({ ...s, error: undefined, pending: true }));
+    const raw = typeof target === "function" ? fieldsOrOptions : maybeOptions;
+    const options = typeof raw === "function" ? raw(vars) : (raw as MutateOptions | undefined);
+    const promise =
+      typeof target === "function"
+        ? pool.mutate(() => target(vars), options)
+        : pool.mutate(target, vars, fieldsOrOptions as Fields, options);
+    promise.then(
+      (data) => id === latest.current && setState({ data, error: undefined, pending: false }),
+      (error) => id === latest.current && setState({ data: undefined, error, pending: false }),
+    );
+    return promise;
+  }, []);
+  const reset = useCallback(() => {
+    latest.current++;
+    setState(IDLE_MUTATION);
+  }, []);
+  return { ...state, mutate, reset };
+}
+
+const IDLE_MUTATION = { data: undefined, error: undefined, pending: false };

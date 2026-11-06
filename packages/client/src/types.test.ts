@@ -2,7 +2,7 @@
 // below only keeps bun's runner happy; the assertions are the types.
 import { expect, test } from "bun:test";
 import { createPool, enumValue, ref, type EnumValue } from "./index.ts";
-import { useData } from "./react.ts";
+import { useData, useMutation } from "./react.ts";
 
 // What `laguz-types` generates for a small schema.
 type Role = "ADMIN" | "MEMBER";
@@ -24,8 +24,12 @@ interface Query {
   users(args?: { role?: EnumValue<Role> | null }): User[];
   count: number;
 }
+interface Mutation {
+  rename(args: { id: string | number; name: string }): User;
+}
 interface Schema {
   Query: Query;
+  Mutation: Mutation;
 }
 
 type Equal<A, B> =
@@ -87,6 +91,36 @@ function typed() {
   useData(pool, "users", { role: enumValue("ROOT") }, ["id"]);
 }
 
+function operations() {
+  const pool = createPool<Schema>(fetcher);
+  pool.load("user", { id: 1 }, ["name", { projects: ["id"] }]);
+  // @ts-expect-error unknown root field
+  pool.load("nope", {}, ["id"]);
+  // @ts-expect-error unknown field
+  pool.load("user", { id: 1 }, ["nope"]);
+
+  const renamed = pool.mutate("rename", { id: 1, name: "Ada" }, ["id", { manager: ["name"] }]);
+  expectType<Equal<typeof renamed, Promise<{ id: string; manager: { name: string } | null }>>>();
+  // @ts-expect-error refs only work in queries
+  pool.mutate("rename", { id: ref("user", { id: 1 }, "id"), name: "Ada" }, ["id"]);
+  // @ts-expect-error a query is not a mutation
+  pool.mutate("user", { id: 1 }, ["id"]);
+  // @ts-expect-error a schema without mutations has none
+  createPool<{ Query: Query }>(fetcher).mutate("rename", { id: 1, name: "Ada" }, ["id"]);
+
+  const rename = useMutation(pool, "rename", ["name"], (vars) => ({
+    optimistic: [["user", { id: vars.id }, (u) => ({ ...u, name: vars.name })]],
+  }));
+  expectType<Equal<typeof rename.data, { name: string } | undefined>>();
+  // @ts-expect-error missing argument
+  rename.mutate({ id: 1 });
+
+  const save = useMutation(pool, async (n: number) => `saved ${n}`);
+  expectType<Equal<typeof save.data, string | undefined>>();
+  // @ts-expect-error variables of the function
+  save.mutate("1");
+}
+
 // Without a schema everything stays loose, as before.
 function untyped() {
   const pool = createPool(fetcher);
@@ -95,5 +129,5 @@ function untyped() {
 }
 
 test("type tests compile", () => {
-  expect([typed, untyped].length).toBe(2);
+  expect([typed, operations, untyped].length).toBe(3);
 });

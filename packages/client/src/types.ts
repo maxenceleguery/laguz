@@ -3,7 +3,9 @@
 // that take arguments are methods, so argument types can be read with `infer`.
 import type { Fields, Ref } from "./selection.ts";
 
-export type SchemaShape = { Query: object };
+export type SchemaShape = { Query: object; Mutation?: object };
+/** The root operation types. */
+export type Operation = "Query" | "Mutation";
 
 type IsAny<T> = 0 extends 1 & T ? true : false;
 type Prettify<T> = { [K in keyof T]: T[K] } & {};
@@ -67,14 +69,22 @@ type Field<T, Out extends string, V> = V extends readonly unknown[]
     : WithFields<Unwrap<T[Out & keyof T]>, V>;
 type WithFields<T, V> = V extends { fields: infer F } ? Selected<T, F> : T;
 
-type Query<S extends SchemaShape> = S["Query"];
-type Root<S extends SchemaShape, R> = R extends keyof Query<S> ? Query<S>[R] : never;
+// A schema without mutations has none, rather than every name (`keyof never`).
+type Op<S, O extends Operation> = S extends { [K in O]: infer T } ? T : {};
+type Root<S, R, O extends Operation> = R extends keyof Op<S, O> ? Op<S, O>[R] : never;
 
-export type RootName<S extends SchemaShape> = IsAny<S> extends true ? string : Keys<Query<S>>;
-/** Root arguments. Any value can also be a `ref()` to another query's result. */
-export type RootArgs<S extends SchemaShape, R> =
-  IsAny<S> extends true ? object : { [K in keyof ArgsOf<Root<S, R>>]: ArgsOf<Root<S, R>>[K] | Ref };
-export type RootSelection<S extends SchemaShape, R> =
-  IsAny<S> extends true ? Fields : Selection<Element<Unwrap<Root<S, R>>>>;
-export type RootResult<S extends SchemaShape, R, F> =
-  IsAny<S> extends true ? any : Selected<Unwrap<Root<S, R>>, F>;
+export type RootName<S extends SchemaShape, O extends Operation = "Query"> =
+  IsAny<S> extends true ? string : Keys<Op<S, O>>;
+/** Root arguments. In a query, any value can also be a `ref()` to another query's result. */
+export type RootArgs<S extends SchemaShape, R, O extends Operation = "Query"> =
+  IsAny<S> extends true
+    ? O extends "Query"
+      ? object
+      : any
+    : O extends "Query"
+      ? { [K in keyof ArgsOf<Root<S, R, O>>]: ArgsOf<Root<S, R, O>>[K] | Ref }
+      : ArgsOf<Root<S, R, O>>;
+export type RootSelection<S extends SchemaShape, R, O extends Operation = "Query"> =
+  IsAny<S> extends true ? Fields : Selection<Element<Unwrap<Root<S, R, O>>>>;
+export type RootResult<S extends SchemaShape, R, F, O extends Operation = "Query"> =
+  IsAny<S> extends true ? any : Selected<Unwrap<Root<S, R, O>>, F>;
