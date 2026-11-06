@@ -9,6 +9,7 @@ export type {
   Pool,
   Response,
   Snapshot,
+  WatchOptions,
 } from "./pool.ts";
 export { enumValue, fieldKey, printField, ref, toTree, view } from "./selection.ts";
 export type { EnumValue, FieldArg, Fields, Ref, Tree } from "./selection.ts";

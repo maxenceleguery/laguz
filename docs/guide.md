@@ -46,14 +46,16 @@ const pool = createPool(httpFetcher("/graphql", { stream: true }), {
 });
 ```
 
-| Option       | Default                     | Meaning                                                                                                  |
-| ------------ | --------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `staleTime`  | `0`                         | Milliseconds before cached data is refetched when a new consumer mounts. Cached data is shown meanwhile. |
-| `gcTime`     | `300000`, server `Infinity` | Milliseconds an entry without consumers stays in the cache.                                              |
-| `retry`      | `3`, server `0`             | Retries before an error is reported. Fields that fail together are retried together.                     |
-| `retryDelay` | exponential, capped at 30 s | `(attempt) => ms`.                                                                                       |
-| `maxBatch`   | unlimited                   | Maximum root fields per request, for servers that cap aliases.                                           |
-| `serverRefs` | `"auto"`                    | Whether the server resolves `ref()` arguments. See [Dependent queries](#dependent-queries).              |
+| Option               | Default                     | Meaning                                                                                                                       |
+| -------------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `staleTime`          | `0`                         | Milliseconds before cached data is refetched when a new consumer mounts. Cached data is shown meanwhile.                      |
+| `gcTime`             | `300000`, server `Infinity` | Milliseconds an entry without consumers stays in the cache.                                                                   |
+| `retry`              | `3`, server `0`             | Retries before an error is reported. Fields that fail together are retried together.                                          |
+| `retryDelay`         | exponential, capped at 30 s | `(attempt) => ms`.                                                                                                            |
+| `maxBatch`           | unlimited                   | Maximum root fields per request, for servers that cap aliases.                                                                |
+| `serverRefs`         | `"auto"`                    | Whether the server resolves `ref()` arguments. See [Dependent queries](#dependent-queries).                                   |
+| `refetchOnFocus`     | `true` in browsers          | When the tab becomes visible again, refetch the entries in use older than `staleTime`, and retry failed ones, in one request. |
+| `refetchOnReconnect` | `true` in browsers          | The same when the network comes back.                                                                                         |
 
 `httpFetcher(url, options)` POSTs `{ query }` as JSON:
 
@@ -169,6 +171,10 @@ With `{ keepPrevious: true }` as a fifth argument, `data` keeps the result of
 the previous arguments while the new ones load or are `null`, and `previous`
 is true. Use it for filters, search and pagination, where emptying the screen
 on every change would flicker. An error replaces the previous data.
+
+`{ refetchInterval: ms }` polls while the component is mounted, except when the
+tab is hidden. Everything polled at the same interval, across components,
+shares one request per tick.
 
 `loading` means there is no data to show yet. `fetching` means data is shown
 and a refresh is in flight, retries included: use it for a discreet spinner.
@@ -304,14 +310,6 @@ The building blocks are available on their own:
 | `pool.watch(root, args, fields, callback)` | Subscribes outside React. Returns the unsubscribe function.                                                                    |
 | `pool.read(root, args)`                    | The current snapshot `{ data, error, has }`.                                                                                   |
 
-To refetch when the tab regains focus:
-
-```ts
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible") pool.invalidate();
-});
-```
-
 ## Server rendering
 
 Load the page's data on the server, send it along with the HTML, and hydrate
@@ -442,20 +440,21 @@ server in `bench/server.ts` does). Behind nginx, disable `proxy_buffering` and
 
 ## Compared with TanStack Query
 
-|                        | TanStack Query                       | laguz                                                                |
-| ---------------------- | ------------------------------------ | -------------------------------------------------------------------- |
-| Requests               | one per query                        | one per commit, merged by root field and arguments                   |
-| Stale-while-revalidate | `staleTime`                          | `staleTime`; the merged entry refetches as a whole                   |
-| Retries                | 3, exponential backoff               | 3, exponential backoff, batched                                      |
-| Optimistic updates     | `onMutate` with manual rollback      | `pool.mutate` with `optimistic` and automatic rollback               |
-| Invalidation           | one request per query                | one request for everything invalidated                               |
-| Dependent queries      | `enabled`, one round trip per level  | `null` arguments, or `ref()`: one round trip with the server package |
-| Infinite queries       | pages refetched one after the other  | all pages in one request, optional prefetch                          |
-| Result types           | written by hand or by a codegen step | generated from the schema, inferred from each selection              |
-| Suspense               | `useSuspenseQuery`                   | `useSuspenseData`, one boundary per component                        |
-| Server rendering       | `dehydrate`, `HydrationBoundary`     | `dehydrate`, `useHydrate`; server loads go out as one request        |
-| Previous data          | `placeholderData: keepPreviousData`  | `keepPrevious: true`                                                 |
-| Not available yet      |                                      | devtools, request cancellation                                       |
+|                           | TanStack Query                       | laguz                                                                |
+| ------------------------- | ------------------------------------ | -------------------------------------------------------------------- |
+| Requests                  | one per query                        | one per commit, merged by root field and arguments                   |
+| Stale-while-revalidate    | `staleTime`                          | `staleTime`; the merged entry refetches as a whole                   |
+| Retries                   | 3, exponential backoff               | 3, exponential backoff, batched                                      |
+| Optimistic updates        | `onMutate` with manual rollback      | `pool.mutate` with `optimistic` and automatic rollback               |
+| Invalidation              | one request per query                | one request for everything invalidated                               |
+| Focus, reconnect, polling | one request per query                | one request for everything due                                       |
+| Dependent queries         | `enabled`, one round trip per level  | `null` arguments, or `ref()`: one round trip with the server package |
+| Infinite queries          | pages refetched one after the other  | all pages in one request, optional prefetch                          |
+| Result types              | written by hand or by a codegen step | generated from the schema, inferred from each selection              |
+| Suspense                  | `useSuspenseQuery`                   | `useSuspenseData`, one boundary per component                        |
+| Server rendering          | `dehydrate`, `HydrationBoundary`     | `dehydrate`, `useHydrate`; server loads go out as one request        |
+| Previous data             | `placeholderData: keepPreviousData`  | `keepPrevious: true`                                                 |
+| Not available yet         |                                      | devtools, request cancellation                                       |
 
 ## Limitations
 
