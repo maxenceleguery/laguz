@@ -323,6 +323,10 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
 - Fields the components select but the server didn't load are fetched after
   hydration, in one request. `useSuspenseData` fetches during the server render
   instead, so load what it reads.
+- In development, the browser pool warns when it has to fetch a hydrated entry
+  right after hydration: the server loaded fewer fields than the components
+  read, or the data was already older than `staleTime`. Entries the server
+  didn't load at all are not reported, since that can be on purpose.
 - If you write the state into a `<script>` tag yourself, escape `<` in the
   JSON. Frameworks that pass props from server to client components do it for
   you.
