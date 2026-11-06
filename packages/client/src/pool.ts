@@ -81,6 +81,12 @@ export type Options = {
   refetchOnFocus?: boolean;
   /** The same when the network comes back. Default true, in browsers. */
   refetchOnReconnect?: boolean;
+  /**
+   * Names the operations sent, `query <name> { ... }`, so server logs and
+   * tracing can tell them apart. Receives the root fields of the request.
+   * Default: unnamed.
+   */
+  operationName?: (roots: string[], type: "query" | "mutation") => string;
 };
 
 export type WatchOptions = {
@@ -179,7 +185,14 @@ function pool(fetcher: Fetcher, options: Options) {
     serverRefs = "auto",
     refetchOnFocus = true,
     refetchOnReconnect = true,
+    operationName,
   } = options;
+  const operation = (type: "query" | "mutation", roots: string[]) =>
+    operationName
+      ? `${type} ${name(operationName(roots, type))} `
+      : type === "mutation"
+        ? "mutation "
+        : "";
 
   let forward = serverRefs === true;
   // Bundlers replace `process.env.NODE_ENV`; without one, `process` may not exist.
@@ -350,12 +363,15 @@ function pool(fetcher: Fetcher, options: Options) {
   }
 
   async function send(reqs: Req[]) {
-    const query = `{ ${reqs.map((r, i) => `q${i}: ${r.e.root}${r.args}${printTree(r.tree)}`).join(" ")} }`;
     const pending = new Map(reqs.map((r, i) => [`q${i}`, r]));
     const request = { controller: new AbortController(), pending };
     active.add(request);
     const { signal } = request.controller;
     try {
+      // Inside the try: an invalid operation name fails the fields, not the pool.
+      const fields = reqs.map((r, i) => `q${i}: ${r.e.root}${r.args}${printTree(r.tree)}`);
+      const roots = [...new Set(reqs.map((r) => r.e.root))];
+      const query = `${operation("query", roots)}{ ${fields.join(" ")} }`;
       const res = fetcher(query, { signal });
       for await (const chunk of Symbol.asyncIterator in res ? res : [await res]) {
         if (signal.aborted) break;
@@ -622,7 +638,9 @@ function pool(fetcher: Fetcher, options: Options) {
   // A mutation goes out alone: never merged into a query batch, never retried.
   async function mutation(root: string, args: object, fields: Fields) {
     if (collectRefs(args).length) throw new Error("ref() arguments only work in queries");
-    const res = fetcher(`mutation { ${name(root)}${printArgs(args)}${printTree(toTree(fields))} }`);
+    const res = fetcher(
+      `${operation("mutation", [root])}{ ${name(root)}${printArgs(args)}${printTree(toTree(fields))} }`,
+    );
     let data: Record<string, unknown> = {};
     const errors: GqlError[] = [];
     for await (const chunk of Symbol.asyncIterator in res ? res : [await res]) {
