@@ -460,7 +460,60 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
   JSON. Frameworks that pass props from server to client components do it for
   you.
 
-The [Next.js example](../examples/nextjs) puts this together.
+### Streaming, without loading first
+
+Instead of loading each page's queries in a server component, the components
+can suspend on them while the server renders, and the data streams to the
+browser with the HTML. Give `createPoolContext` Next's `useServerInsertedHTML`:
+
+```tsx
+// app/pool.tsx
+"use client";
+import { createPool, httpFetcher } from "@laguzjs/client";
+import { createPoolContext } from "@laguzjs/client/react";
+import { useServerInsertedHTML } from "next/navigation";
+import type { Schema } from "./schema.generated";
+
+// Client components render on the server too, where only an absolute URL works.
+const url = typeof window === "undefined" ? `${process.env.SITE_URL}/graphql` : "/graphql";
+
+export const { PoolProvider, useSuspenseData } = createPoolContext(
+  () => createPool<Schema>(httpFetcher(url, { stream: true }), { staleTime: 30_000 }),
+  { useServerInsertedHTML },
+);
+```
+
+```tsx
+// a client component: no server component loads it first
+function Issue({ id }: { id: string }) {
+  const issue = useSuspenseData(issueQuery(id));
+  return <h1>{issue.title}</h1>;
+}
+
+<Suspense fallback={<p>Loading…</p>}>
+  <Issue id={id} />
+</Suspense>;
+```
+
+While Next streams the page, each flush of HTML carries a script with the data
+that settled since the last one, placed before the content that uses it. In
+the browser, the provider hydrates its pool from those scripts before React
+hydrates that content, so nothing is fetched twice. Data already hydrated from
+props is not sent again.
+
+- Only `useSuspenseData` loads during the server render; `useData` renders its
+  loading state there and fetches in the browser.
+- Components that suspend in the same pass share one request. A component
+  suspends on the first query it lacks, so one that reads two queries fetches
+  them one after the other: split it, one query per component.
+- Client components can't read the request's cookies while the server renders
+  them. For data that depends on the user, load it in a server component and
+  pass it with `Hydrate`.
+- On client-side navigations, Next doesn't render client components on the
+  server: the components fetch in the browser, in one request.
+
+The [Next.js example](../examples/nextjs) puts this together: its board loads
+in a server component, its issue page streams.
 
 ## Server
 

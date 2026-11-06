@@ -1,11 +1,10 @@
 "use client";
 import { enumValue } from "@laguzjs/client";
-import { useData, useInfiniteData, useMutation } from "@laguzjs/client/react";
 import Link from "next/link";
 import { useState } from "react";
 import type { Status } from "../lib/db";
 import { issuePage, stats } from "../lib/queries";
-import { usePool } from "../lib/pool";
+import { useData, useInfiniteData, useMutation } from "../lib/pool";
 
 type Row = { id: string; title: string; status: Status; assignee: { name: string } };
 type Page = { items: Row[]; next: string | null };
@@ -17,7 +16,7 @@ const FILTERS: [label: string, status: Status | null][] = [
 ];
 
 function Stats() {
-  const { data } = useData(usePool(), stats);
+  const { data } = useData(stats);
   return <p>{data ? `${data.open} open, ${data.done} done` : "Counting issues…"}</p>;
 }
 
@@ -41,17 +40,15 @@ export function Board() {
 }
 
 function Issues({ status }: { status: Status | null }) {
-  const pool = usePool();
   const pageOf = (prev: Page | undefined) => issuePage(prev?.next ?? null, status);
   // While another filter loads, the current list stays on screen, dimmed.
   const { pages, hasMore, loading, loadingMore, error, previous, loadMore } = useInfiniteData<Page>(
-    pool,
     (prev, i) => (i === 0 || prev?.next ? pageOf(prev) : null),
     { keepPrevious: true },
   );
 
   // The checkbox flips at once; the list and the counts refetch in one request after.
-  const setStatus = useMutation(pool, "setStatus", ["id", "status"], ({ id, status }) => {
+  const setStatus = useMutation("setStatus", ["id", "status"], ({ id, status }) => {
     const page = pages.findIndex((p) => p.items.some((item) => item.id === id));
     const mark = (p: Page) => ({
       ...p,

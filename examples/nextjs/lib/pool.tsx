@@ -1,20 +1,13 @@
 "use client";
-import { createPool, httpFetcher, type Dehydrated, type Fetcher, type Pool } from "@laguzjs/client";
-import { useHydrate } from "@laguzjs/client/react";
-import { createContext, use, useState, useSyncExternalStore, type ReactNode } from "react";
+import { createPool, httpFetcher, type Fetcher } from "@laguzjs/client";
+import { createPoolContext } from "@laguzjs/client/react";
+import { useServerInsertedHTML } from "next/navigation";
+import { useSyncExternalStore } from "react";
 import type { Schema } from "./schema.generated";
 
 // Every query the browser sends, for the request panel.
 let sent: readonly string[] = [];
 const listeners = new Set<() => void>();
-const http = httpFetcher("/graphql", { stream: true });
-// A wrapper passes `options` on: they carry the signal that cancels requests.
-const fetcher: Fetcher = (query, options) => {
-  sent = [...sent, query];
-  listeners.forEach((notify) => notify());
-  return http(query, options);
-};
-
 const none: readonly string[] = [];
 export const useSentQueries = () =>
   useSyncExternalStore(
@@ -23,16 +16,26 @@ export const useSentQueries = () =>
     () => none,
   );
 
-const PoolContext = createContext<Pool<Schema> | null>(null);
-export const usePool = () => use(PoolContext)!;
+// The server renders client components too, and needs an absolute URL there.
+const server = typeof window === "undefined";
+const http = httpFetcher(
+  server ? `${process.env.SITE_URL ?? "http://localhost:3020"}/graphql` : "/graphql",
+  {
+    stream: true,
+  },
+);
+// A wrapper passes `options` on: they carry the signal that cancels requests.
+const fetcher: Fetcher = (query, options) => {
+  if (!server) {
+    sent = [...sent, query];
+    listeners.forEach((notify) => notify());
+  }
+  return http(query, options);
+};
 
-export function PoolProvider({ children }: { children: ReactNode }) {
-  // One pool per request on the server, one per page load in the browser.
-  const [pool] = useState(() => createPool<Schema>(fetcher, { staleTime: 30_000 }));
-  return <PoolContext value={pool}>{children}</PoolContext>;
-}
-
-export function Hydrate({ state, children }: { state: Dehydrated; children: ReactNode }) {
-  useHydrate(usePool(), state);
-  return children;
-}
+export const { PoolProvider, Hydrate, useData, useSuspenseData, useInfiniteData, useMutation } =
+  createPoolContext(
+    () => createPool<Schema>(fetcher, { staleTime: 30_000, serverRefs: true }),
+    // What useSuspenseData loads during the server render streams with the HTML.
+    { useServerInsertedHTML },
+  );
