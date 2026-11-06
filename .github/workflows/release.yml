@@ -37,7 +37,7 @@ jobs:
           pr-title: "chore: version packages"
           commit-message: "chore: version packages"
       - name: Run CI on the version pull request
-        if: steps.changesets.outputs.hasChangesets == 'true'
+        if: steps.changesets.outputs['has-changesets'] == 'true'
         run: gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref changeset-release/main
         env:
           GH_TOKEN: ${{ github.token }}
