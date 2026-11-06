@@ -553,6 +553,41 @@ pass them so its plugins keep running:
 createHandler({ schema, execute: envelopExecute, validate: envelopValidate });
 ```
 
+### With GraphQL Yoga
+
+Keep your Yoga server and add the plugin:
+
+```ts
+import { useLaguz } from "@laguzjs/server";
+import { createYoga } from "graphql-yoga";
+
+const yoga = createYoga({ schema, context, plugins: [useLaguz()] });
+```
+
+Batches from the laguz client (they ask for NDJSON, or carry `ref()`
+placeholders) then stream field by field and forward references, through
+Yoga's own context, validation and execution: its plugins, such as auth,
+query limits, tracing and masked errors, still apply. Other requests, from
+GraphiQL or another client, are left to Yoga.
+
+### With Express, Fastify or Node's http server
+
+`toNodeHandler` from `@laguzjs/server/node` mounts `createHandler` where
+handlers take Node's `req` and `res`. It streams each result as it is written,
+uses a body that `express.json()` has already read, and stops reading the
+results when the client goes away:
+
+```ts
+import { createHandler } from "@laguzjs/server";
+import { toNodeHandler } from "@laguzjs/server/node";
+
+app.post("/graphql/laguz", toNodeHandler(createHandler({ schema, context })));
+```
+
+With Apollo Server, mount it on its own route next to Apollo's, with the same
+schema and the same context function, and point the laguz client at it. Apollo
+Server's plugins don't run for those requests.
+
 Lower-level pieces, for other server setups:
 
 | Export                  | Does                                                                         |

@@ -30,7 +30,7 @@ jobs:
       - name: Build the Next.js example
         run: bun run --cwd examples/nextjs build
       - name: Import the built packages with Node
-        run: node --input-type=module -e "await import('@laguzjs/client'); await import('@laguzjs/client/react'); await import('@laguzjs/server')"
+        run: node --input-type=module -e "await import('@laguzjs/client'); await import('@laguzjs/client/react'); await import('@laguzjs/server'); await import('@laguzjs/server/node')"
 
   test:
     strategy:

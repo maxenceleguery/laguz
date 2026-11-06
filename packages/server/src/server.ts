@@ -376,3 +376,79 @@ export function batchLoader<K, V>(batch: (keys: K[]) => Promise<V[]>) {
     return promise;
   };
 }
+
+type YogaLike = {
+  getEnveloped(context: object): {
+    schema: GraphQLSchema;
+    execute: typeof execute;
+    validate: typeof validate;
+    contextFactory(): unknown;
+  };
+};
+type Params = { query?: string; variables?: Record<string, unknown>; operationName?: string };
+
+const wantsStream = (request: Request) =>
+  request.headers.get("accept")?.includes("application/x-ndjson") ?? false;
+
+/**
+ * A GraphQL Yoga plugin: `createYoga({ schema, plugins: [useLaguz()] })`. Batches
+ * from the laguz client stream field by field and forward `ref()` values,
+ * through Yoga's own context, validation and execution, so its plugins (auth,
+ * limits, masked errors, tracing) still apply. Other requests are untouched.
+ */
+export function useLaguz() {
+  let yoga: YogaLike | undefined;
+  return {
+    onYogaInit(payload: { yoga: YogaLike }) {
+      yoga = payload.yoga;
+    },
+    onParams(payload: {
+      request: Request;
+      params: Params;
+      setParamsHandler(
+        handler: (payload: { request: Request; params: Params; context: object }) => unknown,
+      ): void;
+    }) {
+      const { query } = payload.params;
+      // A streaming client, or placeholders only laguz resolves.
+      if (
+        typeof query !== "string" ||
+        !(wantsStream(payload.request) || query.includes("$_ref__"))
+      ) {
+        return;
+      }
+      payload.setParamsHandler(async ({ request, params, context }) => {
+        // As Yoga's own handler does before building the context.
+        Object.assign(context, { request, params });
+        const {
+          schema,
+          execute: run,
+          validate: check,
+          contextFactory,
+        } = yoga!.getEnveloped(context);
+        const results = splitExecute({
+          schema,
+          source: params.query!,
+          execute: run,
+          validate: check,
+          contextValue: await contextFactory(),
+          variableValues: params.variables,
+          operationName: params.operationName,
+        });
+        return wantsStream(request) ? results : merged(results);
+      });
+    },
+    onResultProcess(payload: {
+      request: Request;
+      result: unknown;
+      setResultProcessor(processor: (result: any) => Response, mediaType: string): void;
+    }) {
+      if (wantsStream(payload.request) && isIterable(payload.result)) {
+        payload.setResultProcessor((result) => ndjson(result), "application/x-ndjson");
+      }
+    },
+  };
+}
+
+const isIterable = (value: unknown): value is AsyncIterable<unknown> =>
+  value != null && typeof value === "object" && Symbol.asyncIterator in value;

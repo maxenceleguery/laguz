@@ -39,6 +39,12 @@
       "bun": "./src/server.ts",
       "default": "./dist/server.js"
     },
+    "./node": {
+      "source": "./src/node.ts",
+      "types": "./dist/node.d.ts",
+      "bun": "./src/node.ts",
+      "default": "./dist/node.js"
+    },
     "./package.json": "./package.json"
   },
   "publishConfig": {
@@ -46,7 +52,7 @@
     "provenance": true
   },
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.build.json && tsc -p tsconfig.cli.json && node -e \"require('fs').chmodSync('dist/cli.js', 0o755)\""
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && tsc -p tsconfig.node.json && tsc -p tsconfig.cli.json && node -e \"require('fs').chmodSync('dist/cli.js', 0o755)\""
   },
   "peerDependencies": {
     "graphql": ">=16"
