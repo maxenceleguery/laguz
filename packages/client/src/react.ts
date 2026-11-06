@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ready, type Dehydrated, type MutateOptions, type Pool, type Snapshot } from "./pool.ts";
+import {
+  ready,
+  type Dehydrated,
+  type MutateOptions,
+  type Pool,
+  type Snapshot,
+  type WatchOptions,
+} from "./pool.ts";
 import { toTree, view, type Fields } from "./selection.ts";
 import type { RootArgs, RootName, RootResult, RootSelection, SchemaShape } from "./types.ts";
 
@@ -10,12 +17,19 @@ const unsubscribed = () => () => {};
 // one synchronous pass, so everything a commit renders lands in one batch.
 // Subscribing happens after paint. Registering during render would start the
 // request a little earlier, but leaks when React discards a concurrent render.
-function useEntry(pool: Pool, root: string, args: object | null, fields: Fields, minStaleTime = 0) {
+function useEntry(
+  pool: Pool,
+  root: string,
+  args: object | null,
+  fields: Fields,
+  { minStaleTime, refetchInterval }: WatchOptions = {},
+) {
   const key = JSON.stringify([root, args, fields]);
   const tree = useMemo(() => toTree(fields), [key]);
   const subscribe = useCallback(
-    (cb: () => void) => (args ? pool.watch(root, args, tree, cb, minStaleTime) : unsubscribed()),
-    [pool, key],
+    (cb: () => void) =>
+      args ? pool.watch(root, args, tree, cb, { minStaleTime, refetchInterval }) : unsubscribed(),
+    [pool, key, refetchInterval],
   );
   const read = () => (args ? pool.read(root, args) : IDLE);
   const snap = useSyncExternalStore(subscribe, read, read);
@@ -24,12 +38,17 @@ function useEntry(pool: Pool, root: string, args: object | null, fields: Fields,
 }
 
 /** Options of {@link useData} and {@link useInfiniteData}. */
-export type KeepOptions = {
+export type DataOptions = {
   /**
    * While new arguments load (or are `null`), keep returning the data of the
    * previous ones, with `previous: true`. An error replaces it.
    */
   keepPrevious?: boolean;
+  /**
+   * Refetch every this many milliseconds while mounted, except when the tab is
+   * hidden. Everything polled at the same interval shares one request.
+   */
+  refetchInterval?: number;
 };
 
 // The last result that was ready, for `keepPrevious`. Stored as state during
@@ -58,7 +77,7 @@ export function useData<
   root: R,
   args: RootArgs<S, R> | null,
   fields: F,
-  { keepPrevious = false }: KeepOptions = {},
+  { keepPrevious = false, refetchInterval }: DataOptions = {},
 ): {
   data: RootResult<S, R, F> | undefined;
   error: Error | undefined;
@@ -70,7 +89,9 @@ export function useData<
   /** Refetch this entry. The data stays on screen meanwhile, with `fetching`. */
   refetch: () => void;
 } {
-  const { snap, tree, data, key } = useEntry(pool, root, args, fields as unknown as Fields);
+  const { snap, tree, data, key } = useEntry(pool, root, args, fields as unknown as Fields, {
+    refetchInterval,
+  });
   const isReady = !!args && ready(snap, tree);
   const last = useLast(keepPrevious, key, isReady, data, snap.data);
   const previous = !isReady && !snap.error && !!last;
@@ -100,7 +121,9 @@ export function useSuspenseData<
   const F extends RootSelection<S, R>,
 >(pool: Pool<S>, root: R, args: RootArgs<S, R>, fields: F): RootResult<S, R, F> {
   // Data that just resolved shouldn't be refetched when the component commits.
-  const { snap, tree, data } = useEntry(pool, root, args, fields as unknown as Fields, 1000);
+  const { snap, tree, data } = useEntry(pool, root, args, fields as unknown as Fields, {
+    minStaleTime: 1000,
+  });
   if (snap.error) throw snap.error;
   if (!ready(snap, tree)) throw pool.load(root, args, tree);
   return data;
@@ -128,7 +151,7 @@ export type Page = { root: string; args: object; fields: Fields };
 export function useInfiniteData<T = any>(
   pool: Pool,
   page: (prev: T | undefined, index: number) => Page | null,
-  { prefetch = 0, keepPrevious = false }: { prefetch?: number } & KeepOptions = {},
+  { prefetch = 0, keepPrevious = false, refetchInterval }: { prefetch?: number } & DataOptions = {},
 ) {
   // Other arguments for the first page (a new filter) make another list,
   // which starts over at one page.
@@ -181,7 +204,8 @@ export function useInfiniteData<T = any>(
       const k = JSON.stringify(p);
       next.set(
         k,
-        watches.current.get(k) ?? pool.watch(p.root, p.args, p.fields, () => notify.current()),
+        watches.current.get(k) ??
+          pool.watch(p.root, p.args, p.fields, () => notify.current(), { refetchInterval }),
       );
       watches.current.delete(k);
     }

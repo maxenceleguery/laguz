@@ -400,7 +400,7 @@ test("a minimum stale time skips the refetch right after a suspense load", async
   const { pool, queries } = setup(() => ({ data: { q0: { name: "Ada" } } }), { staleTime: 0 });
   await pool.load("user", { id: 42 }, ["name"]);
   await new Promise((r) => setTimeout(r, 2));
-  pool.watch("user", { id: 42 }, ["name"], () => {}, 1000);
+  pool.watch("user", { id: 42 }, ["name"], () => {}, { minStaleTime: 1000 });
   await settle();
   expect(queries).toHaveLength(1);
 });

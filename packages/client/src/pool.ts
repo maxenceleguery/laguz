@@ -66,6 +66,24 @@ export type Options = {
    * the client and switches once a response carries `extensions.laguz`.
    */
   serverRefs?: boolean | "auto";
+  /**
+   * When the tab becomes visible again, refetch the entries in use that are
+   * older than `staleTime`, and retry those that failed, in one request.
+   * Default true, in browsers.
+   */
+  refetchOnFocus?: boolean;
+  /** The same when the network comes back. Default true, in browsers. */
+  refetchOnReconnect?: boolean;
+};
+
+export type WatchOptions = {
+  /** Treat data as fresh for at least this long, whatever the pool's `staleTime`. */
+  minStaleTime?: number;
+  /**
+   * Refetch every this many milliseconds while subscribed, except when the tab
+   * is hidden. Entries polled at the same interval share one request.
+   */
+  refetchInterval?: number;
 };
 
 type Sub = { tree: Tree; cb: () => void };
@@ -110,6 +128,8 @@ function unref<T>(timer: T): T {
   return timer;
 }
 
+const hidden = () => typeof document !== "undefined" && document.visibilityState === "hidden";
+
 const toError = (err: GqlError | Error) => (err instanceof Error ? err : new Error(err.message));
 
 // Array.isArray doesn't narrow a readonly array out of a union.
@@ -137,6 +157,8 @@ function pool(fetcher: Fetcher, options: Options) {
     retryDelay = (attempt: number) => Math.min(1000 * 2 ** attempt, 30_000),
     maxBatch = Infinity,
     serverRefs = "auto",
+    refetchOnFocus = true,
+    refetchOnReconnect = true,
   } = options;
 
   let forward = serverRefs === true;
@@ -433,11 +455,12 @@ function pool(fetcher: Fetcher, options: Options) {
     args: object,
     fields: Fields | Tree,
     cb: () => void,
-    minStaleTime = 0,
+    { minStaleTime = 0, refetchInterval }: WatchOptions = {},
   ) {
     const e = entry(root, args);
     clearTimeout(e.gc);
     if (e.at && Date.now() - e.at > Math.max(staleTime, minStaleTime)) e.stale = true;
+    const stopPolling = refetchInterval ? poll(e, refetchInterval) : undefined;
     if (e.snap.error) e.fails = 0;
     const sub = { tree: isFields(fields) ? toTree(fields) : fields, cb };
     e.subs.add(sub);
@@ -449,8 +472,53 @@ function pool(fetcher: Fetcher, options: Options) {
     return () => {
       e.subs.delete(sub);
       deps.forEach((off) => off());
+      stopPolling?.();
       release(e);
     };
+  }
+
+  // One timer per interval, so the entries polled at that interval share a request.
+  const polls = new Map<number, { timer: ReturnType<typeof setInterval>; entries: Entry[] }>();
+  function poll(e: Entry, interval: number) {
+    let group = polls.get(interval);
+    if (!group) {
+      const entries: Entry[] = [];
+      const timer = unref(
+        setInterval(() => {
+          if (hidden()) return;
+          new Set(entries).forEach((polled) => {
+            polled.stale = true;
+            touch(polled);
+          });
+        }, interval),
+      );
+      polls.set(interval, (group = { timer, entries }));
+    }
+    group.entries.push(e);
+    return () => {
+      group.entries.splice(group.entries.indexOf(e), 1);
+      if (group.entries.length) return;
+      clearInterval(group.timer);
+      polls.delete(interval);
+    };
+  }
+
+  // Back on the tab or online: what's in use and due refetches, together.
+  function revalidate() {
+    // Entries nobody uses are skipped by the flush; they revalidate when mounted.
+    for (const e of entries.values()) {
+      const due = e.at && Date.now() - e.at > staleTime;
+      if (!due && !e.snap.error) continue;
+      e.stale = !!e.at;
+      e.fails = 0;
+      touch(e);
+    }
+  }
+  if (typeof document !== "undefined" && typeof window?.addEventListener === "function") {
+    if (refetchOnFocus) {
+      document.addEventListener("visibilitychange", () => hidden() || revalidate());
+    }
+    if (refetchOnReconnect) window.addEventListener("online", revalidate);
   }
 
   const read = (root: string, args: object): Snapshot =>
@@ -579,7 +647,7 @@ export interface Pool<S extends SchemaShape = any> {
     args: object,
     fields: Fields | Tree,
     callback: () => void,
-    minStaleTime?: number,
+    options?: WatchOptions,
   ): () => void;
   /** The current snapshot of `root(args)`. Stable until the entry changes. */
   read(root: string, args: object): Snapshot;

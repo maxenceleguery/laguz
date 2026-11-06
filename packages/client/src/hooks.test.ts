@@ -302,3 +302,141 @@ test("refetch keeps the data on screen with fetching, for one entry or every pag
   expect(out.list!.fetching).toBe(false);
   await unmount();
 });
+
+// --- refetch on focus, reconnect, interval ---
+
+// Answers every root field of a batch with its alias, so tests can see what was asked.
+function echo(options: Parameters<typeof lib.createPool>[1] = {}) {
+  const queries: string[] = [];
+  let failing = false;
+  const pool = lib.createPool(
+    async (query) => {
+      queries.push(query);
+      if (failing) return { errors: [{ message: "offline" }] };
+      const data = Object.fromEntries((query.match(/q\d+/g) ?? []).map((a) => [a, { name: a }]));
+      return { data };
+    },
+    { retry: 0, ...options },
+  );
+  return { pool, queries, fail: (on: boolean) => (failing = on) };
+}
+
+async function until(condition: () => boolean, ms = 1000) {
+  const end = Date.now() + ms;
+  while (!condition()) {
+    if (Date.now() > end) throw new Error("timed out");
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+let visibility: DocumentVisibilityState = "visible";
+function setVisibility(state: DocumentVisibilityState) {
+  visibility = state;
+  Object.defineProperty(document, "visibilityState", { configurable: true, get: () => visibility });
+  document.dispatchEvent(new Event("visibilitychange"));
+}
+
+test("back on the tab, entries in use older than staleTime refetch together", async () => {
+  const { pool, queries } = echo({ staleTime: 30 });
+  pool.watch("user", { id: 1 }, ["name"], () => {});
+  pool.watch("user", { id: 2 }, ["name"], () => {});
+  await pool.load("user", { id: 3 }, ["name"]); // loaded, then nobody uses it
+  await until(() => !!pool.read("user", { id: 2 }).data);
+  queries.length = 0;
+
+  setVisibility("visible"); // still fresh
+  await wait(50);
+  setVisibility("hidden"); // stale, but the tab is hidden
+  await wait(10);
+  expect(queries).toEqual([]);
+
+  setVisibility("visible");
+  await until(() => queries.length > 0);
+  expect(queries).toEqual(["{ q0: user(id: 1) { name } q1: user(id: 2) { name } }"]);
+});
+
+test("when the network comes back, failed entries in use are retried, retries included", async () => {
+  const { pool, queries, fail } = echo({ staleTime: Infinity, retry: 1, retryDelay: () => 5 });
+  fail(true);
+  pool.watch("user", { id: 1 }, ["name"], () => {});
+  await until(() => !!pool.read("user", { id: 1 }).error);
+  expect(queries).toHaveLength(2);
+  window.dispatchEvent(new Event("online")); // still offline: a fresh retry budget
+  await until(() => queries.length === 4);
+  fail(false);
+  queries.length = 0;
+  window.dispatchEvent(new Event("online"));
+  await until(() => !!pool.read("user", { id: 1 }).data);
+  expect(queries).toEqual(["{ q0: user(id: 1) { name } }"]);
+  expect(pool.read("user", { id: 1 }).error).toBeUndefined();
+});
+
+test("refetchOnFocus and refetchOnReconnect can be turned off", async () => {
+  const { pool, queries, fail } = echo({
+    staleTime: 0,
+    refetchOnFocus: false,
+    refetchOnReconnect: false,
+  });
+  fail(true);
+  pool.watch("user", { id: 1 }, ["name"], () => {});
+  await until(() => !!pool.read("user", { id: 1 }).error);
+  queries.length = 0;
+  setVisibility("visible");
+  window.dispatchEvent(new Event("online"));
+  await wait(30);
+  expect(queries).toEqual([]);
+});
+
+test("entries polled at the same interval share each request, until their last consumer leaves", async () => {
+  // Count the pool's live timers: a leaked one would poll forever.
+  const live = new Set<unknown>();
+  const { setInterval: set, clearInterval: clear } = globalThis;
+  globalThis.setInterval = ((fn: () => void, ms: number) => {
+    const id = set(fn, ms);
+    live.add(id);
+    return id;
+  }) as typeof setInterval;
+  globalThis.clearInterval = ((id: ReturnType<typeof setInterval>) => {
+    live.delete(id);
+    clear(id);
+  }) as typeof clearInterval;
+  try {
+    await polling();
+  } finally {
+    globalThis.setInterval = set;
+    globalThis.clearInterval = clear;
+  }
+  expect(live.size).toBe(0);
+});
+
+async function polling() {
+  const { pool, queries } = echo({ staleTime: Infinity });
+  function User() {
+    hooks.useData(pool, "user", { id: 1 }, ["name"], { refetchInterval: 40 });
+    return null;
+  }
+  const { unmount } = await mount(React.createElement(User));
+  await until(() => !!pool.read("user", { id: 1 }).data);
+  const stop = pool.watch("user", { id: 2 }, ["name"], () => {}, { refetchInterval: 40 });
+  await until(() => !!pool.read("user", { id: 2 }).data);
+  queries.length = 0;
+
+  await until(() => queries.length > 0);
+  expect(queries).toEqual(["{ q0: user(id: 1) { name } q1: user(id: 2) { name } }"]);
+
+  setVisibility("hidden");
+  queries.length = 0;
+  await wait(100);
+  expect(queries).toEqual([]);
+  setVisibility("visible");
+
+  await unmount();
+  stop();
+  await wait(100);
+  // No longer polled, so still fresh: mounting again doesn't refetch.
+  queries.length = 0;
+  pool.watch("user", { id: 1 }, ["name"], () => {})();
+  await wait(10);
+  expect(queries).toEqual([]);
+}
