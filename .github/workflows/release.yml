@@ -38,6 +38,9 @@ jobs:
         with:
           github-token: ${{ secrets.RELEASE_TOKEN }}
           version-script: bunx changeset version
-          publish-script: bun run release
+          # Publish only when the version pull request is merged. Any other push
+          # to main just opens or updates that pull request, so merging while a
+          # release waits for approval on npm doesn't try to publish it again.
+          publish-script: "${{ startsWith(github.event.head_commit.message, 'chore: version packages') && 'bun run release' || '' }}"
           pr-title: "chore: version packages"
           commit-message: "chore: version packages"
