@@ -49,8 +49,8 @@ const pool = createPool(httpFetcher("/graphql", { stream: true }), {
 | Option       | Default                     | Meaning                                                                                                  |
 | ------------ | --------------------------- | -------------------------------------------------------------------------------------------------------- |
 | `staleTime`  | `0`                         | Milliseconds before cached data is refetched when a new consumer mounts. Cached data is shown meanwhile. |
-| `gcTime`     | `300000`                    | Milliseconds an entry without consumers stays in the cache.                                              |
-| `retry`      | `3`                         | Retries before an error is reported. Fields that fail together are retried together.                     |
+| `gcTime`     | `300000`, server `Infinity` | Milliseconds an entry without consumers stays in the cache.                                              |
+| `retry`      | `3`, server `0`             | Retries before an error is reported. Fields that fail together are retried together.                     |
 | `retryDelay` | exponential, capped at 30 s | `(attempt) => ms`.                                                                                       |
 | `maxBatch`   | unlimited                   | Maximum root fields per request, for servers that cap aliases.                                           |
 | `serverRefs` | `"auto"`                    | Whether the server resolves `ref()` arguments. See [Dependent queries](#dependent-queries).              |
@@ -243,6 +243,77 @@ document.addEventListener("visibilitychange", () => {
 });
 ```
 
+## Server rendering
+
+Load the page's data on the server, send it along with the HTML, and hydrate
+the browser's pool with it before the components render. With the Next.js App
+Router, the browser pool lives in a client component:
+
+```tsx
+// app/pool.tsx
+"use client";
+import { createContext, use, useState, type ReactNode } from "react";
+import { createPool, httpFetcher, type Dehydrated, type Pool } from "@laguzjs/client";
+import { useHydrate } from "@laguzjs/client/react";
+import type { Schema } from "./schema.generated";
+
+const PoolContext = createContext<Pool<Schema> | null>(null);
+export const usePool = () => use(PoolContext)!;
+
+export function PoolProvider({ children }: { children: ReactNode }) {
+  // One pool per request on the server, one per page load in the browser.
+  const [pool] = useState(() =>
+    createPool<Schema>(httpFetcher("/graphql", { stream: true }), { staleTime: 60_000 }),
+  );
+  return <PoolContext value={pool}>{children}</PoolContext>;
+}
+
+export function Hydrate({ state, children }: { state: Dehydrated; children: ReactNode }) {
+  useHydrate(usePool(), state);
+  return children;
+}
+```
+
+A server component loads the data and passes it down:
+
+```tsx
+// app/users/[id]/page.tsx
+import { createPool, httpFetcher } from "@laguzjs/client";
+import { Hydrate } from "../../pool";
+
+export default async function UserPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const pool = createPool(httpFetcher(process.env.GRAPHQL_URL!));
+  // Loads started together go out as one request.
+  await Promise.all([
+    pool.load("user", { id }, ["name", "email"]),
+    pool.load("posts", { author: id }, ["id", "title"]),
+  ]);
+  return (
+    <Hydrate state={pool.dehydrate()}>
+      <Profile id={id} />
+    </Hydrate>
+  );
+}
+```
+
+- `pool.dehydrate()` returns the loaded entries as JSON-safe values. Entries
+  that failed are left out, and the browser fetches them.
+- `pool.hydrate(state)` adds them to a pool. Entries the pool has newer data
+  for are kept, so it is safe to call on every navigation. `useHydrate(pool,
+  state)` calls it during render, before the components below read the pool.
+- Create a pool per request on the server: a pool holds the data of the user
+  who made the request. Without a `window`, pools default to `gcTime: Infinity`
+  and `retry: 0`, so a request never waits on retries or leaves timers behind.
+- Hydrated entries keep the time they were loaded. With `staleTime: 0` the
+  browser refetches them as soon as the components mount, in one request.
+- Fields the components select but the server didn't load are fetched after
+  hydration, in one request. `useSuspenseData` fetches during the server render
+  instead, so load what it reads.
+- If you write the state into a `<script>` tag yourself, escape `<` in the
+  JSON. Frameworks that pass props from server to client components do it for
+  you.
+
 ## Server
 
 ```ts
@@ -303,6 +374,7 @@ server in `bench/server.ts` does). Behind nginx, disable `proxy_buffering` and
 | Infinite queries       | pages refetched one after the other  | all pages in one request, optional prefetch                                  |
 | Result types           | written by hand or by a codegen step | generated from the schema, inferred from each selection                      |
 | Suspense               | `useSuspenseQuery`                   | `useSuspenseData`, one boundary per component                                |
+| Server rendering       | `dehydrate`, `HydrationBoundary`     | `dehydrate`, `useHydrate`; server loads go out as one request                |
 | Not available yet      |                                      | keeping previous data while arguments change, devtools, request cancellation |
 
 ## Limitations
