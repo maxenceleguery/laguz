@@ -490,3 +490,121 @@ test("unmounting aborts a request nobody else waits for; StrictMode's remount ke
   await other.unmount();
   expect(signals.at(-1)!.aborted).toBe(true);
 });
+
+test("createPoolContext: one pool per provider, hydrated from state, hooks bound to it", async () => {
+  const fetched: string[] = [];
+  let created = 0;
+  const ctx = hooks.createPoolContext(
+    () => (
+      created++,
+      lib.createPool(
+        async (query) => (fetched.push(query), { data: { rename: { name: "Bob" } } }),
+        { staleTime: 60_000, retry: 0 },
+      )
+    ),
+  );
+  const user = lib.queries()("user", { id: 1 }, ["name"]);
+  const state = [
+    { root: "user", args: { id: 1 }, data: { name: "Ada" }, has: { name: {} }, at: Date.now() },
+  ];
+  const seen: { name?: unknown; pools: unknown[]; rename?: MutationSeen } = { pools: [] };
+  function Profile() {
+    seen.name = ctx.useData(user).data?.name;
+    seen.pools.push(ctx.usePool());
+    seen.rename = ctx.useMutation("rename", ["name"]) as MutationSeen;
+    return null;
+  }
+  const page = (s?: typeof state) =>
+    React.createElement(ctx.PoolProvider, { state: s }, React.createElement(Profile));
+  const a = await mount(page(state));
+  expect(seen.name).toBe("Ada");
+  expect(fetched).toEqual([]);
+
+  await React.act(async () => void (await seen.rename!.mutate({ id: 1, name: "Bob" })));
+  expect(fetched).toEqual(['mutation { rename(id: 1, name: "Bob") { name } }']);
+  expect(seen.rename!.data).toEqual({ name: "Bob" });
+
+  // Another provider, like another request on the server: its own pool, empty.
+  const b = await mount(page());
+  expect(created).toBe(2);
+  expect(new Set(seen.pools).size).toBe(2);
+  await a.unmount();
+  await b.unmount();
+});
+
+test("createPoolContext: the hooks say what's missing outside a provider", async () => {
+  const ctx = hooks.createPoolContext(() => lib.createPool(async () => ({ data: {} })));
+  function Orphan() {
+    ctx.usePool();
+    return null;
+  }
+  const error = console.error;
+  console.error = () => {}; // React reports the error too
+  try {
+    await expect(mount(React.createElement(Orphan))).rejects.toThrow(
+      "usePool() needs a <PoolProvider> above it",
+    );
+  } finally {
+    console.error = error;
+  }
+});
+
+test("createPoolContext: Hydrate fills a shared provider, bound hooks pass their options on", async () => {
+  const fetched: string[] = [];
+  const ctx = hooks.createPoolContext(() =>
+    lib.createPool(
+      async (query) => {
+        fetched.push(query);
+        if (query.startsWith("mutation")) return { data: { rename: { name: "Bob" } } };
+        const data: Record<string, unknown> = {};
+        for (const [, alias, root, args] of query.matchAll(/(q\d+): (\w+)(\([^)]*\))?/g)) {
+          data[alias!] =
+            root === "feed"
+              ? { items: [args], next: args!.includes("null") ? "c1" : null }
+              : { name: "Ada" };
+        }
+        return { data };
+      },
+      { staleTime: 60_000, retry: 0 },
+    ),
+  );
+  const user = lib.queries()("user", { id: 1 }, ["name"]);
+  const state = [
+    { root: "user", args: { id: 1 }, data: { name: "Ada" }, has: { name: {} }, at: Date.now() },
+  ];
+  const seen: { pools: unknown[]; user?: Seen; rename?: MutationSeen } = { pools: [] };
+  function Profile({ id }: { id: number | null }) {
+    seen.pools.push(ctx.usePool());
+    seen.user = ctx.useData(id === null ? null : user, { keepPrevious: true });
+    ctx.useInfiniteData(
+      (prev: { next: string | null } | undefined, i) =>
+        i === 0 || prev?.next
+          ? { root: "feed", args: { after: prev?.next ?? null }, fields: ["items", "next"] }
+          : null,
+      { prefetch: 1 },
+    );
+    seen.rename = ctx.useMutation("rename", ["name"], { invalidate: ["feed"] }) as MutationSeen;
+    return null;
+  }
+  const page = (id: number | null) =>
+    React.createElement(
+      ctx.PoolProvider,
+      null,
+      React.createElement(ctx.Hydrate, { state }, React.createElement(Profile, { id })),
+    );
+  const { rerender, unmount } = await mount(page(1));
+  await React.act(async () => {});
+  expect(seen.user?.data).toEqual({ name: "Ada" });
+  expect(fetched.some((q) => q.includes("user"))).toBe(false); // hydrated
+  expect(fetched.some((q) => q.includes('after: "c1"'))).toBe(true); // prefetched
+
+  await rerender(page(null));
+  expect(seen.user).toMatchObject({ data: { name: "Ada" }, previous: true });
+  expect(new Set(seen.pools).size).toBe(1); // re-rendering the provider keeps its pool
+
+  const feeds = fetched.filter((q) => q.includes("feed")).length;
+  await React.act(async () => void (await seen.rename!.mutate({ id: 1, name: "Bob" })));
+  await React.act(async () => {});
+  expect(fetched.filter((q) => q.includes("feed")).length).toBeGreaterThan(feeds);
+  await unmount();
+});

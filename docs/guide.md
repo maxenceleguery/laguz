@@ -209,6 +209,35 @@ server rendering cover the page.
 
 All hooks come from `@laguzjs/client/react`.
 
+### A pool in context
+
+`createPoolContext(create)` returns a provider and hooks bound to its pool, so
+components don't pass the pool around:
+
+```tsx
+export const {
+  PoolProvider,
+  Hydrate,
+  usePool,
+  useData,
+  useSuspenseData,
+  useInfiniteData,
+  useMutation,
+} = createPoolContext(() => createPool<Schema>(fetcher));
+
+function Profile({ id }: { id: string }) {
+  const { data } = useData(user(id)); // a query from queries<Schema>()
+  const rename = useMutation("renameUser", ["name"]);
+}
+```
+
+`PoolProvider` creates the pool once per mount: once per request when React
+renders on the server, so users never share a cache, and once per page load in
+the browser. Its `state` prop hydrates the pool; `Hydrate` does the same deeper
+in the tree. The bound `useData` and `useSuspenseData` take queries from
+`queries<Schema>()`; the hooks below take the pool as their first argument and
+work without a context.
+
 ### `useData(pool, root, args, fields)`
 
 Returns `{ data, error, loading, previous, fetching, refetch }`. Pass
@@ -366,32 +395,23 @@ The building blocks are available on their own:
 
 Load the page's data on the server, send it along with the HTML, and hydrate
 the browser's pool with it before the components render. With the Next.js App
-Router, the browser pool lives in a client component:
+Router, the browser pool lives in a client module, created with
+`createPoolContext` (see [A pool in context](#a-pool-in-context)):
 
 ```tsx
 // app/pool.tsx
 "use client";
-import { createContext, use, useState, type ReactNode } from "react";
-import { createPool, httpFetcher, type Dehydrated, type Pool } from "@laguzjs/client";
-import { useHydrate } from "@laguzjs/client/react";
+import { createPool, httpFetcher } from "@laguzjs/client";
+import { createPoolContext } from "@laguzjs/client/react";
 import type { Schema } from "./schema.generated";
 
-const PoolContext = createContext<Pool<Schema> | null>(null);
-export const usePool = () => use(PoolContext)!;
-
-export function PoolProvider({ children }: { children: ReactNode }) {
-  // One pool per request on the server, one per page load in the browser.
-  const [pool] = useState(() =>
-    createPool<Schema>(httpFetcher("/graphql", { stream: true }), { staleTime: 60_000 }),
-  );
-  return <PoolContext value={pool}>{children}</PoolContext>;
-}
-
-export function Hydrate({ state, children }: { state: Dehydrated; children: ReactNode }) {
-  useHydrate(usePool(), state);
-  return children;
-}
+export const { PoolProvider, Hydrate, useData, useMutation } = createPoolContext(() =>
+  createPool<Schema>(httpFetcher("/graphql", { stream: true }), { staleTime: 60_000 }),
+);
 ```
+
+Put `<PoolProvider>` in the root layout, and `<Hydrate state={...}>` in each
+page that loads data on the server.
 
 A server component loads the data and passes it down. With the queries defined
 once (see [Queries defined once](#queries-defined-once)), the server loads
