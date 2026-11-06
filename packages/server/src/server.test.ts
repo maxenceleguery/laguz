@@ -352,3 +352,20 @@ test("cancelling a streamed response closes its results", async () => {
   await reader.cancel();
   expect(closed).toBe(true);
 });
+
+test("a named batch is still split, streamed and forwarded field by field", async () => {
+  const res = await post(
+    "query Dashboard { q0: slow q1: user(id: 1) { teamId } q2: team(id: $_ref__q1__teamId) { name } }",
+    "application/x-ndjson",
+  );
+  const lines = (await res.text())
+    .trim()
+    .split("\n")
+    .map((l) => JSON.parse(l));
+  expect(lines.map((l) => Object.keys(l.data)[0]).at(-1)).toBe("q0");
+  expect(Object.assign({}, ...lines.map((l) => l.data))).toEqual({
+    q0: 1,
+    q1: { teamId: "t1" },
+    q2: { name: "team t1" },
+  });
+});

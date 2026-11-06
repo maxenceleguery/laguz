@@ -1123,3 +1123,36 @@ test("an aborted request doesn't use up the retries of the next one", async () =
   expect(calls).toHaveLength(5); // the aborted one, then 1 + 3 retries
   expect(pool.read("user", { id: 1 }).error?.message).toBe("down");
 });
+
+// --- operation names ---
+
+test("operationName names queries and mutations from their root fields", async () => {
+  const { pool, queries } = setup(
+    (q) =>
+      q.startsWith("mutation")
+        ? { data: { rename: { name: "Ada" } } }
+        : { data: { q0: { name: "a" }, q1: { name: "b" }, q2: { n: 1 } } },
+    {
+      operationName: (roots, type) => `${type === "query" ? "Load" : "Change"}_${roots.join("_")}`,
+    },
+  );
+  pool.watch("user", { id: 1 }, ["name"], () => {});
+  pool.watch("user", { id: 2 }, ["name"], () => {});
+  pool.watch("stats", {}, ["n"], () => {});
+  await settle();
+  await pool.mutate("rename", { id: 1, name: "Ada" }, ["name"]);
+  expect(queries).toEqual([
+    "query Load_user_stats { q0: user(id: 1) { name } q1: user(id: 2) { name } q2: stats { n } }",
+    'mutation Change_rename { rename(id: 1, name: "Ada") { name } }',
+  ]);
+});
+
+test("an invalid operation name fails the fields of the request instead of the pool", async () => {
+  const { pool, queries } = setup(() => ({ data: { q0: { name: "a" } } }), {
+    operationName: () => "not a name",
+  });
+  pool.watch("user", { id: 1 }, ["name"], () => {});
+  await settle();
+  expect(queries).toEqual([]);
+  expect(pool.read("user", { id: 1 }).error?.message).toBe("invalid GraphQL name: not a name");
+});

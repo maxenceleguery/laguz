@@ -56,6 +56,7 @@ const pool = createPool(httpFetcher("/graphql", { stream: true }), {
 | `serverRefs`         | `"auto"`                    | Whether the server resolves `ref()` arguments. See [Dependent queries](#dependent-queries).                                   |
 | `refetchOnFocus`     | `true` in browsers          | When the tab becomes visible again, refetch the entries in use older than `staleTime`, and retry failed ones, in one request. |
 | `refetchOnReconnect` | `true` in browsers          | The same when the network comes back.                                                                                         |
+| `operationName`      | unnamed                     | `(roots, type) => name`: names each request (`query Load_user { ... }`) for server logs and tracing.                          |
 
 `httpFetcher(url, options)` POSTs `{ query }` as JSON:
 
