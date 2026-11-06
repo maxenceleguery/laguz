@@ -81,7 +81,22 @@ the cache by hand, `fieldKey("avatar", { size: 64 })` gives you that key.
 
 Argument values are printed as GraphQL literals. Object keys are sorted, so
 `{ a: 1, b: 2 }` and `{ b: 2, a: 1 }` share a cache entry. `undefined` values are
-dropped and dates are printed with `toJSON()`. Enum values aren't supported yet.
+dropped and dates are printed with `toJSON()`. Strings always print quoted; wrap
+enum values with `enumValue`:
+
+```ts
+import { enumValue } from "@laguzjs/client";
+
+useData(
+  pool,
+  "issues",
+  { orderBy: { field: enumValue("CREATED_AT"), direction: enumValue("DESC") } },
+  ["id", "title"],
+);
+```
+
+Values forwarded by `@laguzjs/server` through `ref()` are typed by the argument
+they fill, so a referenced enum field can feed an enum argument.
 
 ## React hooks
 
@@ -263,4 +278,3 @@ server in `bench/server.ts` does). Behind nginx, disable `proxy_buffering` and
 - Server limits on aliases or query cost apply to the whole batch. Use
   `maxBatch` to split large batches. Batches that forward refs are never split.
 - Refs live in root field arguments and point at fields without arguments.
-- Enum arguments are not supported yet.

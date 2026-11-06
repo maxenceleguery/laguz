@@ -18,6 +18,9 @@ export type Tree = { [key: string]: Tree };
  */
 export type Ref = { $ref: [root: string, args: object, path: string] };
 
+/** An enum value as an argument: printed bare (`DESC`), not as a string. See {@link enumValue}. */
+export type EnumValue = { $enum: string };
+
 const NAME = /^[_A-Za-z][_0-9A-Za-z]*$/;
 
 export function name(s: string): string {
@@ -36,6 +39,10 @@ export function ref(root: string, args: object, path: string): Ref {
   }
   return { $ref: [name(root), args, path] };
 }
+
+/** `enumValue("DESC")` prints as `DESC`. Plain strings always print quoted. */
+export const enumValue = (value: string): EnumValue => ({ $enum: name(value) });
+const isEnum = (v: unknown): v is EnumValue => v !== null && typeof v === "object" && "$enum" in v;
 
 export const isRef = (v: unknown): v is Ref => v !== null && typeof v === "object" && "$ref" in v;
 
@@ -152,6 +159,7 @@ export function printTree(tree: Tree): string {
  */
 export function printValue(v: any, onRef?: (r: Ref) => string): string {
   if (isRef(v)) return onRef ? onRef(v) : `@${v.$ref[0]}${printArgs(v.$ref[1])}.${v.$ref[2]}`;
+  if (isEnum(v)) return v.$enum;
   if (typeof v?.toJSON === "function") v = v.toJSON();
   if (Array.isArray(v)) return `[${v.map((x) => printValue(x, onRef)).join(", ")}]`;
   if (v && typeof v === "object") {
