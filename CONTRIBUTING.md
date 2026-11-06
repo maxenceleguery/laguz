@@ -70,6 +70,9 @@ and run the type check and tests before a push.
 
 ## Releases
 
-Merging to `main` updates a "version packages" pull request with the pending
-changesets. Merging that pull request publishes both packages to npm with
-provenance, from the release workflow.
+Releases are not tied to individual pull requests. Merging a pull request with
+a changeset opens or updates a "version packages" pull request, which collects
+every pending changeset, bumps the versions and writes the changelogs. CI runs
+on it like on any other pull request. Merging it publishes both packages to npm
+from the release workflow, with provenance, and creates the git tags and GitHub
+releases. npm then holds the new versions until a maintainer approves them.
