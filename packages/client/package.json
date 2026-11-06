@@ -1,0 +1,61 @@
+{
+  "name": "@laguzjs/client",
+  "version": "0.1.0",
+  "description": "Batch the GraphQL data needs of a React commit into one request, streamed back field by field.",
+  "keywords": [
+    "batching",
+    "data-fetching",
+    "graphql",
+    "hooks",
+    "react",
+    "streaming"
+  ],
+  "homepage": "https://laguz.maxenceleguery.net",
+  "bugs": {
+    "url": "https://github.com/maxenceleguery/laguz/issues"
+  },
+  "license": "MIT",
+  "author": "Maxence Leguery",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/maxenceleguery/laguz.git",
+    "directory": "packages/client"
+  },
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.test.ts"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "bun": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./react": {
+      "source": "./src/react.ts",
+      "types": "./dist/react.d.ts",
+      "bun": "./src/react.ts",
+      "default": "./dist/react.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  }
+}

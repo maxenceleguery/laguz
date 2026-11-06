@@ -1,0 +1,50 @@
+{
+  "name": "@laguzjs/server",
+  "version": "0.1.0",
+  "description": "Server side of laguz: run each root field on its own, stream results, resolve dependent queries in one round trip.",
+  "keywords": [
+    "batching",
+    "dataloader",
+    "graphql",
+    "ndjson",
+    "server",
+    "streaming"
+  ],
+  "homepage": "https://laguz.maxenceleguery.net",
+  "bugs": {
+    "url": "https://github.com/maxenceleguery/laguz/issues"
+  },
+  "license": "MIT",
+  "author": "Maxence Leguery",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/maxenceleguery/laguz.git",
+    "directory": "packages/server"
+  },
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.test.ts"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "source": "./src/server.ts",
+      "types": "./dist/server.d.ts",
+      "bun": "./src/server.ts",
+      "default": "./dist/server.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json"
+  },
+  "peerDependencies": {
+    "graphql": ">=16"
+  }
+}
