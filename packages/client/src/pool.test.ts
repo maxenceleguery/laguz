@@ -32,6 +32,19 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
 const settle = async () => {
   for (let i = 0; i < 10; i++) await tick();
 };
+// console.warn calls made while `fn` runs.
+async function warnings(fn: () => Promise<void>) {
+  const original = console.warn;
+  const seen: string[] = [];
+  console.warn = (message: string) => void seen.push(message);
+  try {
+    await fn();
+  } finally {
+    console.warn = original;
+  }
+  return seen;
+}
+
 const deferred = <T>() => {
   let resolve!: (v: T) => void, reject!: (e: unknown) => void;
   const promise = new Promise<T>((a, b) => ((resolve = a), (reject = b)));
@@ -657,7 +670,10 @@ test("hydrate notifies consumers after the current task, then fetches what the s
     { root: "user", args: { id: 1 }, data: { name: "Ada" }, has: toTree(["name"]), at: 1 },
   ]);
   expect(seen).toEqual([]);
-  await settle();
+  const warned = await warnings(settle);
+  expect(warned).toEqual([
+    "laguz: user(id: 1) was rendered on the server without { email }, so the browser fetched it after hydration. Load the same fields on the server.",
+  ]);
   expect(seen[0]).toEqual({ data: { name: "Ada" }, has: toTree(["name"]) });
   expect(queries).toEqual(["{ q0: user(id: 1) { email } }"]);
   expect(pool.read("user", { id: 1 }).data).toEqual({ name: "Ada", email: "a@x" });
@@ -790,6 +806,57 @@ test("on the server a failure is reported at once; in the browser it is retried"
     expect(await attempt()).toBe(4);
   } finally {
     delete (globalThis as { window?: unknown }).window;
+  }
+});
+
+test("hydrated data older than staleTime is refetched on mount, with a warning", async () => {
+  const { pool, queries } = setup(() => ({ data: { q0: { name: "Ada" } } }), { staleTime: 50 });
+  const at = Date.now() - 1000;
+  pool.hydrate([
+    { root: "user", args: { id: 1 }, data: { name: "Ada" }, has: toTree(["name"]), at },
+  ]);
+  const warned = await warnings(async () => {
+    pool.watch("user", { id: 1 }, ["name"], () => {});
+    await settle();
+  });
+  expect(queries).toEqual(["{ q0: user(id: 1) { name } }"]);
+  expect(warned).toEqual([
+    "laguz: user(id: 1) was fetched again right after hydration because it was older than staleTime (50 ms). Set staleTime above the time between the server render and hydration.",
+  ]);
+});
+
+test("no hydration warning when the server covered the entry, or for consumers added later", async () => {
+  const { pool, queries } = setup(() => ({ data: { q0: { email: "a@x" } } }), {
+    staleTime: Infinity,
+  });
+  pool.hydrate([
+    { root: "user", args: { id: 1 }, data: { name: "Ada" }, has: toTree(["name"]), at: 1 },
+  ]);
+  const warned = await warnings(async () => {
+    pool.watch("user", { id: 1 }, ["name"], () => {});
+    await settle();
+    pool.watch("user", { id: 1 }, ["email"], () => {});
+    await settle();
+  });
+  expect(queries).toEqual(["{ q0: user(id: 1) { email } }"]);
+  expect(warned).toEqual([]);
+});
+
+test("no hydration warning in production", async () => {
+  const env = process.env.NODE_ENV;
+  process.env.NODE_ENV = "production";
+  try {
+    const { pool } = setup(() => ({ data: { q0: { email: "a@x" } } }));
+    pool.hydrate([
+      { root: "user", args: { id: 1 }, data: { name: "Ada" }, has: toTree(["name"]), at: 1 },
+    ]);
+    const warned = await warnings(async () => {
+      pool.watch("user", { id: 1 }, ["name", "email"], () => {});
+      await settle();
+    });
+    expect(warned).toEqual([]);
+  } finally {
+    process.env.NODE_ENV = env;
   }
 });
 

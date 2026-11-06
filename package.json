@@ -13,7 +13,7 @@
   "scripts": {
     "build": "bun run --filter '@laguzjs/*' build",
     "test": "bun test",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p packages/client/tsconfig.build.json && tsc --noEmit -p packages/server/tsconfig.build.json && tsc --noEmit -p packages/server/tsconfig.cli.json",
     "lint": "oxlint --deny-warnings .",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",

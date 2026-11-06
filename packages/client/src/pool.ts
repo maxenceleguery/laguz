@@ -82,10 +82,15 @@ type Entry = {
   /** Time of the last successful response, 0 if none. */
   at: number;
   fails: number;
+  /** Hydrated and not fetched since: the next fetch may reveal a server/client mismatch. */
+  hydrated?: boolean;
   gc?: ReturnType<typeof setTimeout>;
 };
 
 type Req = { e: Entry; tree: Tree; full: boolean; epoch: number; args: string; forwarded: boolean };
+
+// The client doesn't depend on Node types; this is all it reads from `process`.
+declare const process: { env: { NODE_ENV?: string } };
 
 const EMPTY: Snapshot = Object.freeze({ has: {} });
 
@@ -126,6 +131,11 @@ function pool(fetcher: Fetcher, options: Options) {
   } = options;
 
   let forward = serverRefs === true;
+  // Bundlers replace `process.env.NODE_ENV`; without one, `process` may not exist.
+  let dev = false;
+  try {
+    dev = process.env.NODE_ENV !== "production";
+  } catch {}
   let scheduled = false;
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
   const entries = new Map<string, Entry>();
@@ -261,6 +271,10 @@ function pool(fetcher: Fetcher, options: Options) {
         todo[i] = undefined;
         progress = true;
         const n = need(e);
+        if (e.hydrated) {
+          e.hydrated = false;
+          if (n && dev) warnHydrated(e, n.tree);
+        }
         if (!n) return;
         e.inflight.add(n.tree);
         batch.set(e, reqs.length);
@@ -353,6 +367,18 @@ function pool(fetcher: Fetcher, options: Options) {
     );
     // Consumers that subscribed while this was in flight may want more.
     if (e.subs.size) touch(e);
+  }
+
+  // In development: the first fetch after hydration means the server render
+  // didn't cover what the components read, and the browser paid a request.
+  function warnHydrated(e: Entry, tree: Tree) {
+    const missing = diff(tree, e.snap.has);
+    const what = `${e.root}${e.args}`;
+    console.warn(
+      missing
+        ? `laguz: ${what} was rendered on the server without${printTree(missing)}, so the browser fetched it after hydration. Load the same fields on the server.`
+        : `laguz: ${what} was fetched again right after hydration because it was older than staleTime (${staleTime} ms). Set staleTime above the time between the server render and hydration.`,
+    );
   }
 
   /** Mark matching entries stale. Those in use refetch together, in one request. */
@@ -508,6 +534,7 @@ function pool(fetcher: Fetcher, options: Options) {
       e.at = at;
       e.sent = sent;
       e.stale = false;
+      e.hydrated = true;
       changed.push(e);
       release(e);
     }
