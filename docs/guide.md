@@ -378,6 +378,7 @@ exactly what the components read:
 import { createPool, httpFetcher } from "@laguzjs/client";
 import { Hydrate } from "../../pool";
 import { postsBy, user } from "../../queries";
+import type { Schema } from "../../schema.generated";
 
 export default async function UserPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
