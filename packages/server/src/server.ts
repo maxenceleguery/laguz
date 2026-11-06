@@ -1,10 +1,13 @@
 import {
+  astFromValue,
   execute,
   GraphQLError,
   Kind,
   parse,
+  TypeInfo,
   validate,
   visit,
+  visitWithTypeInfo,
   type ASTNode,
   type DocumentNode,
   type ExecutionResult,
@@ -184,16 +187,29 @@ async function* executeFields({
     const result = (async (): Promise<ExecutionResult> => {
       let document = single(sel);
       if (refs.length) {
-        const values = new Map<string, ValueNode>();
+        const values = new Map<string, unknown>();
         for (const [i, r] of refs.entries()) {
           const dep = await deps[i];
           const value = r.path.reduce((data: any, key) => data?.[key], dep?.data?.[r.alias]);
           if (value === undefined) {
             return failed(alias, `unresolved reference to ${r.alias}.${r.path.join(".")}`);
           }
-          values.set(r.variable, toLiteral(value));
+          values.set(r.variable, value);
         }
-        document = visit(document, { Variable: (v) => values.get(v.name.value) });
+        // Print each value as the type of the argument it fills: a forwarded
+        // "DESC" must become the enum DESC, not the string "DESC".
+        const typeInfo = new TypeInfo(schema);
+        document = visit(
+          document,
+          visitWithTypeInfo(typeInfo, {
+            Variable(v) {
+              if (!values.has(v.name.value)) return;
+              const value = values.get(v.name.value);
+              const type = typeInfo.getInputType();
+              return (type && astFromValue(value, type)) || toLiteral(value);
+            },
+          }),
+        );
       }
       if (refs.length || !batchValid) {
         const fieldErrors = check(schema, document);

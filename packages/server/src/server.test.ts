@@ -4,16 +4,17 @@ import { buildSchema, execute, validate } from "graphql";
 import { batchLoader, createHandler, ndjson, splitExecute } from "./server.ts";
 
 const schema = buildSchema(`
-  type User { id: ID! name: String! teamId: ID! }
+  enum Role { ADMIN MEMBER }
+  type User { id: ID! name: String! teamId: ID! role: Role! }
   type Team { id: ID! name: String! leadId: ID! }
-  type Query { user(id: ID!): User  team(id: ID!): Team  slow: Int!  fast: Int!  boom: User }
+  type Query { user(id: ID!): User  team(id: ID!): Team  slow: Int!  fast: Int!  boom: User  byRole(role: Role!): [User!]! }
 `);
 
 let userBatches: string[][] = [];
 const ctx = () => ({
   users: batchLoader(async (ids: string[]) => {
     userBatches.push(ids);
-    return ids.map((id) => ({ id, name: `u${id}`, teamId: `t${id}` }));
+    return ids.map((id) => ({ id, name: `u${id}`, teamId: `t${id}`, role: "ADMIN" }));
   }),
 });
 const rootValue = {
@@ -21,6 +22,7 @@ const rootValue = {
   slow: () => Bun.sleep(80).then(() => 1),
   fast: () => 2,
   team: ({ id }: { id: string }) => ({ id, name: `team ${id}`, leadId: "9" }),
+  byRole: ({ role }: { role: string }) => [{ id: "1", name: `first ${role.toLowerCase()}` }],
   boom: () => {
     throw new Error("boom");
   },
@@ -252,4 +254,11 @@ test("a field whose execute throws reports an error, and the other fields still 
   expect(out).toHaveLength(2);
   expect(out.some((r) => r.errors?.[0]?.message === "plugin crashed")).toBe(true);
   expect(out.some((r) => r.data?.q1 === 1)).toBe(true);
+});
+
+test("a forwarded value is typed by the argument it fills, so enums forward as enums", async () => {
+  const out = (await collect(
+    "{ q0: user(id: 1) { role } q1: byRole(role: $_ref__q0__role) { name } }",
+  )) as any[];
+  expect(out.find((r) => r.data?.q1)?.data.q1).toEqual([{ name: "first admin" }]);
 });

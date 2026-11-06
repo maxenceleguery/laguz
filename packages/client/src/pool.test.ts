@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   createPool,
+  enumValue,
   fieldKey,
   ready,
   ref,
@@ -572,4 +573,33 @@ test("serverRefs auto: refs resolve on the client until the server identifies it
   expect(queries[2]).toBe(
     "{ q0: user(id: 2) { teamId } q1: team(id: $_ref__q0__teamId) { name } }",
   );
+});
+
+// --- enum arguments ---
+
+test("enum values print bare, inside input objects and lists too", async () => {
+  const { pool, queries } = setup();
+  const args = {
+    orderBy: { field: enumValue("CREATED_AT"), direction: enumValue("DESC") },
+    states: [enumValue("OPEN"), enumValue("MERGED")],
+  };
+  pool.watch(
+    "issues",
+    args,
+    ["id", { labels: { args: { order: enumValue("ASC") }, fields: ["name"] } }],
+    () => {},
+  );
+  await tick();
+  expect(queries[0]).toBe(
+    `{ q0: issues(orderBy: {direction: DESC, field: CREATED_AT}, states: [OPEN, MERGED]) { id ${fieldKey("labels", { order: enumValue("ASC") })}: labels(order: ASC) { name } } }`,
+  );
+});
+
+test("enum names are validated, and an enum never shares a cache entry with a string", async () => {
+  expect(() => enumValue("DESC }")).toThrow();
+  const { pool, queries } = setup();
+  pool.watch("issues", { state: enumValue("OPEN") }, ["id"], () => {});
+  pool.watch("issues", { state: "OPEN" }, ["id"], () => {});
+  await tick();
+  expect(queries[0]).toBe('{ q0: issues(state: OPEN) { id } q1: issues(state: "OPEN") { id } }');
 });
