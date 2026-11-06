@@ -13,18 +13,20 @@ export type HttpOptions = {
 
 /** A fetcher that POSTs `{ query }` to `url`. */
 export function httpFetcher(url: string, options: HttpOptions = {}): Fetcher {
-  const send = async (query: string) => {
+  const send = async (query: string, signal?: AbortSignal) => {
     const headers = new Headers({
       "content-type": "application/json",
       accept: options.stream ? "application/x-ndjson, application/json" : "application/json",
     });
     const extra = typeof options.headers === "function" ? await options.headers() : options.headers;
     new Headers(extra).forEach((value, key) => headers.set(key, value));
+    const own = options.init?.signal;
     const res = await (options.fetch ?? fetch)(url, {
       ...options.init,
       method: "POST",
       headers,
       body: JSON.stringify({ query }),
+      signal: own && signal ? AbortSignal.any([own, signal]) : (own ?? signal),
     });
     // A GraphQL error comes back as JSON whatever the status. Anything else,
     // like a proxy's HTML error page, would only fail to parse.
@@ -32,10 +34,10 @@ export function httpFetcher(url: string, options: HttpOptions = {}): Fetcher {
     if (!type.includes("json")) throw new Error(`HTTP ${res.status} ${res.statusText}`.trim());
     return res;
   };
-  return (query) =>
+  return (query, { signal } = {}) =>
     options.stream
-      ? lines(send(query))
-      : send(query).then((res) => res.json() as Promise<GqlResponse>);
+      ? lines(send(query, signal))
+      : send(query, signal).then((res) => res.json() as Promise<GqlResponse>);
 }
 
 async function* lines(pending: Promise<Response>): AsyncGenerator<GqlResponse> {

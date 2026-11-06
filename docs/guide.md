@@ -76,8 +76,28 @@ const fetcher = httpFetcher("/graphql", {
 
 A response that isn't JSON, such as a proxy's error page, fails with its HTTP
 status instead of a parse error. Any function
-`(query) => Promise<Response> | AsyncIterable<Response>` works as a fetcher, so
-you can bring your own transport.
+`(query, { signal }) => Promise<Response> | AsyncIterable<Response>` works as a
+fetcher, so you can bring your own transport.
+
+### Cancellation
+
+A request is aborted once nothing waits for any of its pending fields: the
+components that asked for them unmounted, or an invalidation replaced them.
+The check runs at the end of the task, so a component that unmounts and mounts
+again right away (React's StrictMode, a quick remount) keeps its request. An
+aborted request reports no error and isn't retried; the data is fetched again
+if a component asks for it later. Mutations are never aborted.
+
+The pool passes an `AbortSignal` as `options.signal` to the fetcher, and
+`httpFetcher` hands it to `fetch`. A fetcher that wraps another must pass the
+options on:
+
+```ts
+const logged: Fetcher = (query, options) => {
+  console.debug(query);
+  return http(query, options);
+};
+```
 
 ## Selecting fields
 
@@ -448,6 +468,10 @@ batch shares them, so lookups made by different components still end up in a
 single database query. `batchLoader` is a small DataLoader; the `dataloader`
 package works the same way.
 
+When the client cancels a streamed request, the handler stops reading the
+remaining results. To stop the database work too, give `req.signal` to your
+loaders: `context: (req) => ({ users: usersLoader(req.signal) })`.
+
 If your server already has its own `execute` and `validate` (envelop, Yoga),
 pass them so its plugins keep running:
 
@@ -521,7 +545,8 @@ Request mocking libraries that match GraphQL operations by name, such as MSW's
 | Suspense                  | `useSuspenseQuery`                   | `useSuspenseData`, one boundary per component                        |
 | Server rendering          | `dehydrate`, `HydrationBoundary`     | `dehydrate`, `useHydrate`; server loads go out as one request        |
 | Previous data             | `placeholderData: keepPreviousData`  | `keepPrevious: true`                                                 |
-| Not available yet         |                                      | devtools, request cancellation                                       |
+| Cancellation              | a signal per query                   | per batch, once nothing waits for it                                 |
+| Not available yet         |                                      | devtools                                                             |
 
 ## Limitations
 

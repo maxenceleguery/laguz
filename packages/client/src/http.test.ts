@@ -74,3 +74,23 @@ test("a GraphQL error response is read whatever its status", async () => {
   await pool.load("user", { id: 1 }, ["name"]);
   expect(pool.read("user", { id: 1 }).error?.message).toBe("Cannot query field");
 });
+
+test("the pool's signal reaches fetch, combined with one passed in init", async () => {
+  const { fn, inits } = fakeFetch();
+  const pool = new AbortController();
+  const own = new AbortController();
+  await httpFetcher("http://x", { fetch: fn })("{ q0: n }", { signal: pool.signal });
+  await httpFetcher("http://x", { fetch: fn, init: { signal: own.signal } })("{ q0: n }", {
+    signal: pool.signal,
+  });
+  pool.abort();
+  expect(inits[0]!.signal!.aborted).toBe(true);
+  expect(inits[1]!.signal!.aborted).toBe(true);
+
+  const other = new AbortController();
+  await httpFetcher("http://x", { fetch: fn, init: { signal: own.signal } })("{ q0: n }", {
+    signal: other.signal,
+  });
+  own.abort();
+  expect(inits[2]!.signal!.aborted).toBe(true);
+});

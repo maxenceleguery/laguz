@@ -337,6 +337,10 @@ export function ndjson(results: AsyncIterable<unknown>): Response {
       if (done) controller.close();
       else controller.enqueue(encoder.encode(JSON.stringify(value) + "\n"));
     },
+    // The client went away: close the results instead of leaving them suspended.
+    async cancel() {
+      await it.return?.();
+    },
   });
   return new Response(body, { headers: { "content-type": "application/x-ndjson" } });
 }
