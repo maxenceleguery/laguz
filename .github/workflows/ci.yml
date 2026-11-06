@@ -4,9 +4,6 @@ on:
   push:
     branches: [main]
   pull_request:
-  # Started by the release workflow on the version pull request, which GitHub
-  # doesn't run workflows for because the built-in token opened it.
-  workflow_dispatch:
 
 permissions:
   contents: read
