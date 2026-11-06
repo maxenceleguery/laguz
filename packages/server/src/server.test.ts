@@ -8,6 +8,7 @@ const schema = buildSchema(`
   type User { id: ID! name: String! teamId: ID! role: Role! }
   type Team { id: ID! name: String! leadId: ID! }
   type Query { user(id: ID!): User  team(id: ID!): Team  slow: Int!  fast: Int!  boom: User  byRole(role: Role!): [User!]! }
+  type Mutation { rename(id: ID!, name: String!): User! }
 `);
 
 let userBatches: string[][] = [];
@@ -26,6 +27,12 @@ const rootValue = {
   boom: () => {
     throw new Error("boom");
   },
+  rename: ({ id, name }: { id: string; name: string }) => ({
+    id,
+    name,
+    teamId: "t1",
+    role: "ADMIN",
+  }),
 };
 
 const server = Bun.serve({
@@ -127,12 +134,12 @@ test("the first result carries the protocol marker, so clients can upgrade by th
 });
 
 const handler = createHandler({ schema, rootValue, context: ctx });
-const post = (query: string, accept = "application/json") =>
+const post = (query: string, accept = "application/json", extra: object = {}) =>
   handler(
     new Request("http://x/graphql", {
       method: "POST",
       headers: { "content-type": "application/json", accept },
-      body: JSON.stringify({ query }),
+      body: JSON.stringify({ query, ...extra }),
     }),
   );
 
@@ -182,6 +189,40 @@ test("createHandler answers 400 to a malformed body or a missing query", async (
     const json = (await res.json()) as { errors: { message: string }[] };
     expect(json.errors[0]!.message).toContain("query");
   }
+});
+
+// Other clients (GraphiQL, Apollo, a mutation from the app) share the endpoint.
+test("createHandler serves ordinary GraphQL requests: variables, mutations, operationName", async () => {
+  const body = async (query: string, extra: object) => {
+    const { data, errors } = (await (await post(query, "application/json", extra)).json()) as any;
+    return { data, errors };
+  };
+
+  const renamed = await body(
+    "mutation Rename($id: ID!, $name: String!) { rename(id: $id, name: $name) { name } }",
+    {
+      variables: { id: 1, name: "Ada" },
+    },
+  );
+  expect(renamed).toEqual({ data: { rename: { name: "Ada" } }, errors: undefined });
+
+  const user = await body("query ($id: ID!) { user(id: $id) { name } }", { variables: { id: 7 } });
+  expect(user).toEqual({ data: { user: { name: "u7" } }, errors: undefined });
+
+  const picked = await body("query A { fast } query B { slow }", { operationName: "B" });
+  expect(picked).toEqual({ data: { slow: 1 }, errors: undefined });
+});
+
+test("createHandler answers 400 to variables that aren't an object or a non-string operationName", async () => {
+  for (const extra of [{ variables: "x" }, { variables: [1] }, { operationName: 3 }]) {
+    const res = await post("{ fast }", "application/json", extra);
+    expect(res.status).toBe(400);
+  }
+  const ok = await post("{ q0: fast }", "application/json", {
+    variables: null,
+    operationName: null,
+  });
+  expect(ok.status).toBe(200);
 });
 
 test("createHandler answers 405 to anything but POST", async () => {
