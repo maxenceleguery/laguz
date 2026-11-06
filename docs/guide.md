@@ -138,12 +138,18 @@ All hooks come from `@laguzjs/client/react`.
 
 ### `useData(pool, root, args, fields)`
 
-Returns `{ data, error, loading }`. Pass `args: null` to skip the query.
+Returns `{ data, error, loading, previous }`. Pass `args: null` to skip the
+query.
 
 ```tsx
 const { data: user } = useData(pool, "user", { id }, ["teamId"]);
 const { data: team } = useData(pool, "team", user ? { id: user.teamId } : null, ["name"]);
 ```
+
+With `{ keepPrevious: true }` as a fifth argument, `data` keeps the result of
+the previous arguments while the new ones load or are `null`, and `previous`
+is true. Use it for filters, search and pagination, where emptying the screen
+on every change would flicker. An error replaces the previous data.
 
 ### `useSuspenseData(pool, root, args, fields)`
 
@@ -156,7 +162,10 @@ so components sharing a boundary are fetched in two requests instead of one.
 React also reveals Suspense content in batches about 300 ms apart, whatever the
 data layer; use `useData` where the fastest first paint matters.
 
-### `useInfiniteData(pool, page, { prefetch })`
+To keep the current content on screen while new arguments load, change them
+inside `startTransition`: React then waits instead of showing the fallback.
+
+### `useInfiniteData(pool, page, { prefetch, keepPrevious })`
 
 Cursor or offset pagination. `page(previous, index)` returns the selection for
 page `index`, built from the data of the previous page, or `null` after the
@@ -180,10 +189,9 @@ one request; if a cursor moved as a result, the pages after it are fetched
 right after. `prefetch: n` keeps `n` pages loaded ahead of what's shown, so
 `loadMore()` displays the next page immediately.
 
-The hook keeps how many pages are shown when `page` starts returning other
-arguments, such as a new filter, and fetches that many pages again one after
-the other. To start over at one page, give the component a `key` built from
-the filter.
+When the first page's arguments change (a new filter), it is another list,
+and the hook starts over at one page. `keepPrevious: true` keeps the current
+pages, with `previous: true`, until the new first page arrives.
 
 ## Dependent queries
 
@@ -374,19 +382,20 @@ server in `bench/server.ts` does). Behind nginx, disable `proxy_buffering` and
 
 ## Compared with TanStack Query
 
-|                        | TanStack Query                       | laguz                                                                        |
-| ---------------------- | ------------------------------------ | ---------------------------------------------------------------------------- |
-| Requests               | one per query                        | one per commit, merged by root field and arguments                           |
-| Stale-while-revalidate | `staleTime`                          | `staleTime`; the merged entry refetches as a whole                           |
-| Retries                | 3, exponential backoff               | 3, exponential backoff, batched                                              |
-| Optimistic updates     | `onMutate` with manual rollback      | `pool.mutate` with `optimistic` and automatic rollback                       |
-| Invalidation           | one request per query                | one request for everything invalidated                                       |
-| Dependent queries      | `enabled`, one round trip per level  | `null` arguments, or `ref()`: one round trip with the server package         |
-| Infinite queries       | pages refetched one after the other  | all pages in one request, optional prefetch                                  |
-| Result types           | written by hand or by a codegen step | generated from the schema, inferred from each selection                      |
-| Suspense               | `useSuspenseQuery`                   | `useSuspenseData`, one boundary per component                                |
-| Server rendering       | `dehydrate`, `HydrationBoundary`     | `dehydrate`, `useHydrate`; server loads go out as one request                |
-| Not available yet      |                                      | keeping previous data while arguments change, devtools, request cancellation |
+|                        | TanStack Query                       | laguz                                                                |
+| ---------------------- | ------------------------------------ | -------------------------------------------------------------------- |
+| Requests               | one per query                        | one per commit, merged by root field and arguments                   |
+| Stale-while-revalidate | `staleTime`                          | `staleTime`; the merged entry refetches as a whole                   |
+| Retries                | 3, exponential backoff               | 3, exponential backoff, batched                                      |
+| Optimistic updates     | `onMutate` with manual rollback      | `pool.mutate` with `optimistic` and automatic rollback               |
+| Invalidation           | one request per query                | one request for everything invalidated                               |
+| Dependent queries      | `enabled`, one round trip per level  | `null` arguments, or `ref()`: one round trip with the server package |
+| Infinite queries       | pages refetched one after the other  | all pages in one request, optional prefetch                          |
+| Result types           | written by hand or by a codegen step | generated from the schema, inferred from each selection              |
+| Suspense               | `useSuspenseQuery`                   | `useSuspenseData`, one boundary per component                        |
+| Server rendering       | `dehydrate`, `HydrationBoundary`     | `dehydrate`, `useHydrate`; server loads go out as one request        |
+| Previous data          | `placeholderData: keepPreviousData`  | `keepPrevious: true`                                                 |
+| Not available yet      |                                      | devtools, request cancellation                                       |
 
 ## Limitations
 

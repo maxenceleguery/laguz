@@ -35,8 +35,7 @@ export function Board() {
           ))}
         </div>
       </div>
-      {/* A new key per filter starts the list over at one page. */}
-      <Issues key={status ?? "ALL"} status={status} />
+      <Issues status={status} />
     </section>
   );
 }
@@ -44,10 +43,12 @@ export function Board() {
 function Issues({ status }: { status: Status | null }) {
   const pool = usePool();
   const pageArgs = (prev: Page | undefined) => boardPage(prev?.next ?? null, status);
-  const { pages, hasMore, loading, loadingMore, error, loadMore } = useInfiniteData<Page>(
+  // While another filter loads, the current list stays on screen, dimmed.
+  const { pages, hasMore, loading, loadingMore, error, previous, loadMore } = useInfiniteData<Page>(
     pool,
     (prev, i) =>
       i === 0 || prev?.next ? { root: "issues", args: pageArgs(prev), fields: PAGE } : null,
+    { keepPrevious: true },
   );
 
   function toggle(row: Row, page: number) {
@@ -67,10 +68,10 @@ function Issues({ status }: { status: Status | null }) {
   return (
     <>
       {error && <p role="alert">Couldn't load issues: {error.message}</p>}
-      {loading ? (
+      {loading && !previous ? (
         <p>Loading issues…</p>
       ) : (
-        <ul className="issues">
+        <ul className="issues" aria-busy={previous}>
           {pages.map((page, i) =>
             page.items.map((row) => (
               <li key={row.id}>
